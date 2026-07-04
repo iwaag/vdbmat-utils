@@ -28,10 +28,22 @@ empty.
 ## Usage
 
 ```bash
-uv run vdbmat-utils --version
+# write a deterministic synthetic asset
+uv run vdbmat-utils generate-fixture multimaterial -o out/
+
+# metadata-only view (add --json for machine-readable output)
+uv run vdbmat-utils inspect out/multimaterial.voxels.json
+
+# full contract validation (payload checksum, palette, transform, schema range)
+uv run vdbmat-utils validate out/multimaterial.voxels.json
+
+# hand off to vdbmat
+uv run vdbmat import-voxels out/multimaterial.voxels.json out/multimaterial.zarr
 ```
 
-`inspect`, `validate`, and `generate-fixture` commands arrive in Phase 0 Step 6.
+Exit codes: 0 success, 1 validation/generation failure, 2 usage error.
+Fixture presets: `anisotropic`, `transformed`, `multimaterial` (see
+`vdbmat_utils.fixtures`); outputs are byte-deterministic per `docs/determinism.md`.
 
 ## Development
 
