@@ -7,8 +7,11 @@ validated against the pinned `vdbmat` version.
 
 ## Status
 
-Phase 0 (repository and contract foundation) in progress. See
-`.devdocs/vdbmat-utils/plans/phase0/plan.md` in the parent `pj-voxel3dprint` repository.
+Phase 0 (repository and contract foundation) complete: canonical construction helpers, a
+deterministic asset writer, golden-fixture contract tests against the pinned `vdbmat`, and the
+`inspect` / `validate` / `generate-fixture` CLI. Next: Phase 1 (mesh and image-stack conversion
+workflows). Plans and reports live in `.devdocs/vdbmat-utils/` of the parent `pj-voxel3dprint`
+repository; decisions in `docs/adr/`.
 
 ## Installation
 
