@@ -1,0 +1,49 @@
+# vdbmat-utils
+
+Generators and converters that produce material-labeled voxel inputs for
+[vdbmat](https://github.com/iwaag/vdbmat). Every workflow in this repository emits the same
+interchange contract — a `<name>.voxels.json` manifest plus a `<name>.material_id.npy` payload —
+validated against the pinned `vdbmat` version.
+
+## Status
+
+Phase 0 (repository and contract foundation) in progress. See
+`.devdocs/vdbmat-utils/plans/phase0/plan.md` in the parent `pj-voxel3dprint` repository.
+
+## Installation
+
+This package depends on `vdbmat`, which is not published to PyPI. It is consumed as a local path
+dependency on the sibling checkout, pinned by the `pj-voxel3dprint` superproject's submodule
+commits (see `docs/adr/0001-vdbmat-dependency-pinning.md`).
+
+```bash
+git clone --recurse-submodules https://github.com/iwaag/pj-voxel3dprint.git
+cd pj-voxel3dprint/vdbmat-utils
+uv sync            # minimal install: numpy + vdbmat + dev tools
+```
+
+Optional extras (`mesh`, `image`, `vdb`, `preview`) are reserved for later phases and currently
+empty.
+
+## Usage
+
+```bash
+uv run vdbmat-utils --version
+```
+
+`inspect`, `validate`, and `generate-fixture` commands arrive in Phase 0 Step 6.
+
+## Development
+
+```bash
+uv run ruff check .
+uv run mypy src
+uv run pytest
+```
+
+Layout: `src/vdbmat_utils/` (package), `tests/{unit,contract,integration}/`, `docs/adr/`
+(architecture decision records), `examples/`.
+
+Dependency rule: modules depend toward `vdbmat_utils.core`; only `vdbmat`'s public API
+(`vdbmat.core`, `vdbmat.io.voxel_manifest`, the `vdbmat` CLI) may be imported — never
+underscore-prefixed internals.
