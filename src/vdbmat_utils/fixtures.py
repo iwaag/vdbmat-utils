@@ -19,6 +19,7 @@ from vdbmat.core import MaterialDefinition, MaterialLabelVolume, MaterialRole
 from .core import GeneratorConfig, build_material_label_volume, build_provenance
 from .core.errors import ConfigError
 from .image import ImageStackConfig
+from .mesh import MeshVoxelizeConfig
 
 GENERATOR_NAME = "vdbmat-utils-fixture"
 GENERATOR_VERSION = "0.1.0"
@@ -142,6 +143,123 @@ def write_image_stack_fixture(directory: Path) -> tuple[Path, ImageStackConfig]:
         levels=_STACK_LEVELS,
     )
     return directory, config
+
+
+# Mesh fixtures: watertight ASCII STL solids emitted in-code (no binary blobs
+# in git). Both are prism extrusions of a CCW polygon; the L-bracket footprint
+# is asymmetric in x/y and the extrusion height differs from both, so no axis
+# transposition in the voxelizer can go unnoticed. Coordinates are millimetres
+# (`source_unit="mm"` in the fixture config). Material ids stay inside the
+# pinned vdbmat builtin optical mapping so `vdbmat convert` remains runnable.
+
+_CUBE_SIZE_MM = 2.0
+_L_BRACKET_POLYGON_MM: tuple[tuple[float, float], ...] = (
+    (0.0, 0.0),
+    (3.0, 0.0),
+    (3.0, 1.0),
+    (1.0, 1.0),
+    (1.0, 2.0),
+    (0.0, 2.0),
+)
+# Fan from the reflex vertex (1, 1); every polygon edge appears in exactly one
+# cap triangle, so extrusion yields a watertight mesh with no T-junctions.
+_L_BRACKET_CAP_TRIANGLES = ((3, 4, 5), (3, 5, 0), (3, 0, 1), (3, 1, 2))
+_L_BRACKET_HEIGHT_MM = 1.0
+
+
+def _extrude_polygon(
+    polygon_xy: tuple[tuple[float, float], ...],
+    cap_triangles: tuple[tuple[int, int, int], ...],
+    height: float,
+) -> npt.NDArray[np.float64]:
+    """Extrude a CCW simple polygon along +z into outward-oriented triangles."""
+    z0, z1 = 0.0, height
+    triangles: list[
+        tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ] = []
+    for a, b, c in cap_triangles:
+        (ax, ay), (bx, by), (cx, cy) = (
+            polygon_xy[a],
+            polygon_xy[b],
+            polygon_xy[c],
+        )
+        # Bottom cap winds clockwise seen from +z (outward normal -z).
+        triangles.append(((ax, ay, z0), (cx, cy, z0), (bx, by, z0)))
+        triangles.append(((ax, ay, z1), (bx, by, z1), (cx, cy, z1)))
+    count = len(polygon_xy)
+    for i in range(count):
+        (x0, y0) = polygon_xy[i]
+        (x1, y1) = polygon_xy[(i + 1) % count]
+        base_a = (x0, y0, z0)
+        base_b = (x1, y1, z0)
+        top_b = (x1, y1, z1)
+        top_a = (x0, y0, z1)
+        triangles.append((base_a, base_b, top_b))
+        triangles.append((base_a, top_b, top_a))
+    return np.asarray(triangles, dtype=np.float64)
+
+
+def _stl_ascii(triangles: npt.NDArray[np.float64], name: str) -> bytes:
+    lines = [f"solid {name}"]
+    for triangle in triangles:
+        lines.append("  facet normal 0 0 0")
+        lines.append("    outer loop")
+        for vertex in triangle:
+            lines.append(
+                f"      vertex {vertex[0]:.6f} {vertex[1]:.6f} {vertex[2]:.6f}"
+            )
+        lines.append("    endloop")
+        lines.append("  endfacet")
+    lines.append(f"endsolid {name}")
+    return ("\n".join(lines) + "\n").encode("ascii")
+
+
+def cube_stl_bytes() -> bytes:
+    """A 2 mm axis-aligned cube at the origin, as ASCII STL bytes."""
+    square = (
+        (0.0, 0.0),
+        (_CUBE_SIZE_MM, 0.0),
+        (_CUBE_SIZE_MM, _CUBE_SIZE_MM),
+        (0.0, _CUBE_SIZE_MM),
+    )
+    return _stl_ascii(
+        _extrude_polygon(square, ((0, 1, 2), (0, 2, 3)), _CUBE_SIZE_MM), "cube"
+    )
+
+
+def l_bracket_stl_bytes() -> bytes:
+    """An asymmetric 3x2x1 mm L-bracket prism, as ASCII STL bytes."""
+    return _stl_ascii(
+        _extrude_polygon(
+            _L_BRACKET_POLYGON_MM, _L_BRACKET_CAP_TRIANGLES, _L_BRACKET_HEIGHT_MM
+        ),
+        "l_bracket",
+    )
+
+
+def write_mesh_fixture(directory: Path) -> tuple[Path, MeshVoxelizeConfig]:
+    """Write the L-bracket STL fixture; return (mesh_path, config).
+
+    0.5 mm voxels over the 3x2x1 mm bracket with the default one-cell padding
+    give an 8x6x4 (x, y, z) grid — small enough for every test tier.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    mesh_path = directory / "l_bracket.stl"
+    mesh_path.write_bytes(l_bracket_stl_bytes())
+    config = MeshVoxelizeConfig(
+        source_unit="mm",
+        voxel_size_xyz_m=(0.0005, 0.0005, 0.0005),
+        material={
+            "material_id": 1,
+            "name": "transparent-resin",
+            "role": "material",
+        },
+    )
+    return mesh_path, config
 
 
 def build_fixture(preset: str, *, seed: int = 0) -> MaterialLabelVolume:

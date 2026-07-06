@@ -30,6 +30,12 @@ from vdbmat_utils.image import (
     stack_identity,
 )
 from vdbmat_utils.io import write_asset
+from vdbmat_utils.mesh import (
+    MeshVoxelizeConfig,
+    load_mesh,
+    voxelize_mesh,
+)
+from vdbmat_utils.mesh.voxelizer import SUPPORTED_MESH_UNITS
 from vdbmat_utils.preview import material_counts, slice_ascii, slice_pgm
 
 _EXPECTED_ERRORS = (
@@ -95,6 +101,41 @@ def build_parser() -> argparse.ArgumentParser:
     stack_parser.add_argument(
         "--format", choices=("pgm", "png"), default=None, dest="image_format",
         help="override config slice format",
+    )
+
+    mesh_parser = commands.add_parser(
+        "voxelize-mesh",
+        help="voxelize one watertight STL into a vdbmat.voxels asset",
+    )
+    mesh_parser.add_argument("mesh", type=Path, metavar="MESH")
+    mesh_parser.add_argument(
+        "--config", type=Path, required=True, metavar="CONFIG",
+        help="MeshVoxelizeConfig JSON (source_unit, voxel_size_xyz_m, material, ...)",
+    )
+    mesh_parser.add_argument(
+        "--out", type=Path, required=True, metavar="DIR",
+        help="output directory for the manifest and payload",
+    )
+    mesh_parser.add_argument("--name", required=True, metavar="NAME")
+    mesh_parser.add_argument(
+        "--source-unit", choices=SUPPORTED_MESH_UNITS, default=None,
+        dest="source_unit", help="override config source_unit",
+    )
+    mesh_parser.add_argument(
+        "--voxel-size", type=float, nargs=3, default=None,
+        metavar=("X", "Y", "Z"), help="override config voxel_size_xyz_m",
+    )
+    mesh_parser.add_argument(
+        "--material-id", type=int, default=None, dest="material_id",
+        help="override config material.material_id",
+    )
+    mesh_parser.add_argument(
+        "--material-name", default=None, dest="material_name",
+        help="override config material.name",
+    )
+    mesh_parser.add_argument(
+        "--padding", type=int, default=None, dest="padding_cells",
+        help="override config padding_cells",
     )
 
     counts_parser = commands.add_parser(
@@ -195,6 +236,52 @@ def _cmd_convert_image_stack(
     return 0
 
 
+def _cmd_voxelize_mesh(
+    mesh_path: Path,
+    config_path: Path,
+    out: Path,
+    name: str,
+    source_unit: str | None,
+    voxel_size: list[float] | None,
+    material_id: int | None,
+    material_name: str | None,
+    padding_cells: int | None,
+) -> int:
+    config = MeshVoxelizeConfig.from_json(config_path.read_text(encoding="utf-8"))
+    if source_unit is not None:
+        config = dataclasses.replace(config, source_unit=source_unit)
+    if voxel_size is not None:
+        config = dataclasses.replace(
+            config,
+            voxel_size_xyz_m=(voxel_size[0], voxel_size[1], voxel_size[2]),
+        )
+    if material_id is not None or material_name is not None:
+        material = dict(config.material)
+        if material_id is not None:
+            material["material_id"] = material_id
+        if material_name is not None:
+            material["name"] = material_name
+        config = dataclasses.replace(config, material=material)
+    if padding_cells is not None:
+        config = dataclasses.replace(config, padding_cells=padding_cells)
+
+    mesh = load_mesh(mesh_path)
+    result = voxelize_mesh(mesh, config)
+    identity = (
+        f"sha256:{mesh.source_sha256}" if mesh.source_sha256 is not None else None
+    )
+    manifest = write_asset(result.volume, out, name, identity=identity)
+    print(f"wrote {manifest}")
+    diagnostics = result.diagnostics
+    print(
+        f"shape_zyx: {diagnostics.shape_zyx} "
+        f"(triangles={diagnostics.triangle_count}, "
+        f"occupied={diagnostics.occupied_cells})"
+    )
+    _print_material_counts(result.volume)
+    return 0
+
+
 def _cmd_preview_slices(
     manifest: Path, axis: str, index: int | None, out: Path | None
 ) -> int:
@@ -235,6 +322,18 @@ def main(argv: list[str] | None = None) -> int:
                 arguments.name,
                 arguments.voxel_size,
                 arguments.image_format,
+            )
+        if arguments.command == "voxelize-mesh":
+            return _cmd_voxelize_mesh(
+                arguments.mesh,
+                arguments.config,
+                arguments.out,
+                arguments.name,
+                arguments.source_unit,
+                arguments.voxel_size,
+                arguments.material_id,
+                arguments.material_name,
+                arguments.padding_cells,
             )
         if arguments.command == "material-counts":
             return _cmd_material_counts(

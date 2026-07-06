@@ -160,6 +160,61 @@ def test_convert_image_stack_bad_stack_returns_1(
     assert "missing index" in capsys.readouterr().err
 
 
+def test_voxelize_mesh_with_overrides(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from vdbmat_utils.fixtures import write_mesh_fixture
+
+    mesh_path, config = write_mesh_fixture(tmp_path / "mesh")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(config.to_json(), encoding="utf-8")
+    out_dir = tmp_path / "out"
+    assert main(
+        [
+            "voxelize-mesh", str(mesh_path),
+            "--config", str(config_path),
+            "--out", str(out_dir),
+            "--name", "bracket",
+            "--voxel-size", "0.001", "0.001", "0.001",
+            "--material-id", "2",
+            "--material-name", "white-resin",
+            "--padding", "0",
+        ]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "bracket.voxels.json" in output
+    # 1 mm voxels, no padding: 3x2x1 mm bracket -> 3x2x1 grid.
+    assert "shape_zyx: (1, 2, 3)" in output
+    assert "2 (white-resin, material):" in output
+    capsys.readouterr()
+    assert main(["inspect", str(out_dir / "bracket.voxels.json"), "--json"]) == 0
+    inspected = json.loads(capsys.readouterr().out)
+    assert inspected["voxel_size_xyz_m"] == [0.001, 0.001, 0.001]
+    assert inspected["material_ids"] == [0, 2]
+    assert inspected["source_identity"].startswith("sha256:")
+
+
+def test_voxelize_mesh_bad_source_unit_returns_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from vdbmat_utils.fixtures import write_mesh_fixture
+
+    mesh_path, config = write_mesh_fixture(tmp_path / "mesh")
+    config_path = tmp_path / "bad_config.json"
+    config_path.write_text(
+        config.to_json().replace('"mm"', '"furlong"'), encoding="utf-8"
+    )
+    assert main(
+        [
+            "voxelize-mesh", str(mesh_path),
+            "--config", str(config_path),
+            "--out", str(tmp_path / "out"),
+            "--name", "bracket",
+        ]
+    ) == 1
+    assert "source_unit" in capsys.readouterr().err
+
+
 def test_fixture_seed_changes_nothing_for_seedless_presets(tmp_path: Path) -> None:
     a = tmp_path / "a"
     b = tmp_path / "b"
