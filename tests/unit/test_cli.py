@@ -60,6 +60,59 @@ def test_usage_error_returns_2() -> None:
     assert excinfo.value.code == 2
 
 
+def test_material_counts_human_readable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = _generate(tmp_path)
+    capsys.readouterr()
+    assert main(["material-counts", str(manifest)]) == 0
+    out = capsys.readouterr().out
+    assert "0 (void, background): 30" in out
+    assert "1 (resin_clear, material): 30" in out
+
+
+def test_material_counts_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = _generate(tmp_path)
+    capsys.readouterr()
+    assert main(["material-counts", str(manifest), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"0": 30, "1": 30}
+
+
+def test_preview_slices_ascii_default_middle(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = _generate(tmp_path)
+    capsys.readouterr()
+    assert main(["preview-slices", str(manifest)]) == 0
+    out = capsys.readouterr().out
+    # anisotropic preset has shape_zyx (3, 4, 5) -> middle z slice is index 1
+    assert out.startswith("slice z=1  +x →  +y ↓\n")
+    assert len(out.strip().splitlines()) == 1 + 4
+
+
+def test_preview_slices_pgm_out(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = _generate(tmp_path)
+    target = tmp_path / "slice.pgm"
+    capsys.readouterr()
+    assert main(
+        ["preview-slices", str(manifest), "--axis", "y", "--index", "0",
+         "--out", str(target)]
+    ) == 0
+    assert target.read_bytes().startswith(b"P5\n5 3\n255\n")
+
+
+def test_preview_slices_bad_index_returns_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = _generate(tmp_path)
+    assert main(["preview-slices", str(manifest), "--index", "99"]) == 1
+    assert "out of range" in capsys.readouterr().err
+
+
 def test_fixture_seed_changes_nothing_for_seedless_presets(tmp_path: Path) -> None:
     a = tmp_path / "a"
     b = tmp_path / "b"

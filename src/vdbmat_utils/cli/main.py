@@ -10,6 +10,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Literal, cast
 
 from vdbmat.core import VolumeValidationError
 from vdbmat.io import (
@@ -23,6 +24,7 @@ from vdbmat_utils import __version__
 from vdbmat_utils.core import VdbmatUtilsError, require_compatible_volume_schema
 from vdbmat_utils.fixtures import FIXTURE_PRESETS, build_fixture
 from vdbmat_utils.io import write_asset
+from vdbmat_utils.preview import material_counts, slice_ascii, slice_pgm
 
 _EXPECTED_ERRORS = (
     VdbmatUtilsError,
@@ -66,6 +68,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fixture_parser.add_argument("--seed", type=int, default=0)
 
+    counts_parser = commands.add_parser(
+        "material-counts", help="print voxel counts per material id"
+    )
+    counts_parser.add_argument("manifest", type=Path, metavar="MANIFEST")
+    counts_parser.add_argument("--json", action="store_true", dest="json_output")
+
+    preview_parser = commands.add_parser(
+        "preview-slices", help="render one slice as ASCII text or a PGM image"
+    )
+    preview_parser.add_argument("manifest", type=Path, metavar="MANIFEST")
+    preview_parser.add_argument(
+        "--axis", choices=("z", "y", "x"), default="z",
+        help="axis perpendicular to the slice (default: z)",
+    )
+    preview_parser.add_argument(
+        "--index", type=int, default=None,
+        help="slice index along the axis (default: middle slice)",
+    )
+    preview_parser.add_argument(
+        "--out", type=Path, default=None, metavar="FILE.pgm",
+        help="write a grayscale PGM instead of printing ASCII to stdout",
+    )
+
     return parser
 
 
@@ -99,6 +124,35 @@ def _cmd_validate(manifest: Path) -> int:
     return 0
 
 
+def _cmd_material_counts(manifest: Path, *, json_output: bool) -> int:
+    volume = read_material_label_manifest(manifest)
+    counts = material_counts(volume)
+    if json_output:
+        print(json.dumps({str(k): v for k, v in counts.items()}, indent=2))
+    else:
+        for material in volume.palette:
+            print(
+                f"{material.material_id} ({material.name}, {material.role}): "
+                f"{counts[material.material_id]}"
+            )
+    return 0
+
+
+def _cmd_preview_slices(
+    manifest: Path, axis: str, index: int | None, out: Path | None
+) -> int:
+    volume = read_material_label_manifest(manifest)
+    plane_axis = cast(Literal["z", "y", "x"], axis)
+    if index is None:
+        extent = volume.geometry.shape_zyx[("z", "y", "x").index(plane_axis)]
+        index = extent // 2
+    if out is None:
+        print(slice_ascii(volume, plane_axis, index))
+    else:
+        print(f"wrote {slice_pgm(volume, plane_axis, index, out)}")
+    return 0
+
+
 def _cmd_generate_fixture(preset: str, output: Path, seed: int) -> int:
     manifest_path = write_asset(build_fixture(preset, seed=seed), output, preset)
     print(f"wrote {manifest_path}")
@@ -115,6 +169,14 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "generate-fixture":
             return _cmd_generate_fixture(
                 arguments.preset, arguments.output, arguments.seed
+            )
+        if arguments.command == "material-counts":
+            return _cmd_material_counts(
+                arguments.manifest, json_output=arguments.json_output
+            )
+        if arguments.command == "preview-slices":
+            return _cmd_preview_slices(
+                arguments.manifest, arguments.axis, arguments.index, arguments.out
             )
         raise AssertionError(f"unhandled command {arguments.command!r}")
     except _EXPECTED_ERRORS as error:
