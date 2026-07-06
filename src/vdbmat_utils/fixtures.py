@@ -10,6 +10,7 @@ transposition errors cannot cancel out.
 
 import dataclasses
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
@@ -17,6 +18,7 @@ from vdbmat.core import MaterialDefinition, MaterialLabelVolume, MaterialRole
 
 from .core import GeneratorConfig, build_material_label_volume, build_provenance
 from .core.errors import ConfigError
+from .image import ImageStackConfig
 
 GENERATOR_NAME = "vdbmat-utils-fixture"
 GENERATOR_VERSION = "0.1.0"
@@ -107,6 +109,39 @@ _PRESETS: dict[str, Callable[[FixtureConfig], MaterialLabelVolume]] = {
 }
 
 FIXTURE_PRESETS = tuple(sorted(_PRESETS))
+
+
+# Image-stack fixture: gray levels chosen so material ids 0..2 stay inside the
+# pinned vdbmat builtin optical mapping, keeping `vdbmat convert` runnable.
+_STACK_LEVELS: tuple[dict[str, object], ...] = (
+    {"gray": 0, "material_id": 0, "name": "air", "role": "background"},
+    {"gray": 100, "material_id": 1, "name": "transparent-resin", "role": "material"},
+    {"gray": 255, "material_id": 2, "name": "white-resin", "role": "material"},
+)
+_STACK_GRAYS = (0, 100, 255)
+_STACK_SHAPE_ZYX = (3, 4, 5)
+
+
+def write_image_stack_fixture(directory: Path) -> tuple[Path, ImageStackConfig]:
+    """Write a deterministic labeled PGM stack; return (slices_dir, config).
+
+    Three materials (one background), axis-asymmetric pattern
+    ``(7z + 3y + x) % 3`` — the same family as the volume presets, so no
+    z/y/x transposition error can cancel out.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    nz, ny, nx = _STACK_SHAPE_ZYX
+    labels = _asymmetric_labels(_STACK_SHAPE_ZYX, len(_STACK_GRAYS))
+    grays = np.asarray(_STACK_GRAYS, dtype=np.uint8)[labels]
+    for z in range(nz):
+        pixels = grays[z]
+        header = f"P5\n{nx} {ny}\n255\n".encode("ascii")
+        (directory / f"slice_{z:04d}.pgm").write_bytes(header + pixels.tobytes())
+    config = ImageStackConfig(
+        voxel_size_xyz_m=(0.0001, 0.0002, 0.0003),
+        levels=_STACK_LEVELS,
+    )
+    return directory, config
 
 
 def build_fixture(preset: str, *, seed: int = 0) -> MaterialLabelVolume:

@@ -16,6 +16,15 @@ class ImageStackError(VdbmatUtilsError):
     """A slice stack or its configuration violates the generator contract."""
 
 
-from .stack import ImageStackConfig, convert_image_stack  # noqa: E402
+from .stack import (  # noqa: E402
+    ImageStackConfig,
+    convert_image_stack,
+    stack_identity,
+)
 
-__all__ = ["ImageStackConfig", "ImageStackError", "convert_image_stack"]
+__all__ = [
+    "ImageStackConfig",
+    "ImageStackError",
+    "convert_image_stack",
+    "stack_identity",
+]

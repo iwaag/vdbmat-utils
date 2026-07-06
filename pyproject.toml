@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 mesh = []
-image = []
+image = ["pillow>=10"]
 vdb = []
 preview = []
 

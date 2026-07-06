@@ -1,5 +1,6 @@
 """Unit tests for the image-stack workflow (PGM parsing, stacking, mapping)."""
 
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -206,7 +207,11 @@ def test_level_field_validation(tmp_path: Path) -> None:
         )
 
 
-def test_png_requires_image_extra(tmp_path: Path) -> None:
+def test_png_requires_image_extra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Simulate a base install: hide Pillow even if the extra is installed.
+    monkeypatch.setitem(sys.modules, "PIL", None)
     directory = tmp_path / "stack"
     directory.mkdir()
     (directory / "slice_0000.png").write_bytes(b"\x89PNG\r\n\x1a\n")
@@ -217,6 +222,27 @@ def test_png_requires_image_extra(tmp_path: Path) -> None:
 def test_unsupported_format(tmp_path: Path) -> None:
     with pytest.raises(ImageStackError, match="unsupported format 'tiff'"):
         convert_image_stack(tmp_path, _config(format="tiff"))
+
+
+def test_png_matches_pgm(tmp_path: Path) -> None:
+    Image = pytest.importorskip("PIL.Image")
+    pgm_volume = convert_image_stack(_write_stack(tmp_path / "pgm"), _config())
+    png_dir = tmp_path / "png"
+    png_dir.mkdir()
+    for z, pixels in enumerate((_SLICE_0, _SLICE_1)):
+        Image.fromarray(pixels, mode="L").save(png_dir / f"slice_{z:04d}.png")
+    png_volume = convert_image_stack(png_dir, _config(format="png"))
+    np.testing.assert_array_equal(png_volume.material_id, pgm_volume.material_id)
+
+
+def test_png_rejects_non_grayscale(tmp_path: Path) -> None:
+    Image = pytest.importorskip("PIL.Image")
+    png_dir = tmp_path / "png"
+    png_dir.mkdir()
+    rgb = np.zeros((3, 4, 3), dtype=np.uint8)
+    Image.fromarray(rgb, mode="RGB").save(png_dir / "slice_0000.png")
+    with pytest.raises(ImageStackError, match="grayscale"):
+        convert_image_stack(png_dir, _config(format="png"))
 
 
 def test_config_digest_stable_and_seed_reserved(tmp_path: Path) -> None:

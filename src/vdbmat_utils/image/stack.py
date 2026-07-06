@@ -143,6 +143,19 @@ def _read_slice(path: Path, image_format: str) -> npt.NDArray[np.uint8]:
     )
 
 
+def stack_identity(volume: MaterialLabelVolume) -> str:
+    """Asset identity per D6: SHA-256 over the concatenated per-slice digests
+    (provenance ``sources``, in stack order) plus the configuration digest."""
+    combined = hashlib.sha256()
+    for source in volume.provenance.sources:
+        combined.update(source.encode("utf-8"))
+    configuration_digest = volume.provenance.configuration_digest
+    if configuration_digest is None:  # pragma: no cover - convert always sets it
+        raise ImageStackError("volume provenance has no configuration digest")
+    combined.update(configuration_digest.encode("utf-8"))
+    return f"sha256:{combined.hexdigest()}"
+
+
 def convert_image_stack(
     slices_dir: Path, config: ImageStackConfig
 ) -> MaterialLabelVolume:
@@ -194,9 +207,9 @@ def convert_image_stack(
         generator_version=GENERATOR_VERSION,
         config=config,
         sources=tuple(f"sha256:{digest}" for digest in digests),
-        notes=(
-            f"layered image stack from {slices_dir.name}; rows=+Y, columns=+X"
-        ),
+        # No directory name here: the manifest digest must depend only on the
+        # slice bytes and the configuration (checksum-stability contract).
+        notes="layered image stack; rows=+Y, columns=+X",
     )
     return build_material_label_volume(
         material_id=label,

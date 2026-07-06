@@ -7,12 +7,13 @@ Exit codes: 0 success, 1 validation or generation failure, 2 usage error
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 from pathlib import Path
 from typing import Literal, cast
 
-from vdbmat.core import VolumeValidationError
+from vdbmat.core import MaterialLabelVolume, VolumeValidationError
 from vdbmat.io import (
     VolumeIOError,
     VoxelManifestError,
@@ -23,6 +24,11 @@ from vdbmat.io import (
 from vdbmat_utils import __version__
 from vdbmat_utils.core import VdbmatUtilsError, require_compatible_volume_schema
 from vdbmat_utils.fixtures import FIXTURE_PRESETS, build_fixture
+from vdbmat_utils.image import (
+    ImageStackConfig,
+    convert_image_stack,
+    stack_identity,
+)
 from vdbmat_utils.io import write_asset
 from vdbmat_utils.preview import material_counts, slice_ascii, slice_pgm
 
@@ -67,6 +73,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="output directory for the manifest and payload",
     )
     fixture_parser.add_argument("--seed", type=int, default=0)
+
+    stack_parser = commands.add_parser(
+        "convert-image-stack",
+        help="stack labeled 2D slices into a vdbmat.voxels asset",
+    )
+    stack_parser.add_argument("slices_dir", type=Path, metavar="SLICES_DIR")
+    stack_parser.add_argument(
+        "--config", type=Path, required=True, metavar="CONFIG",
+        help="ImageStackConfig JSON (voxel_size_xyz_m, levels, ...)",
+    )
+    stack_parser.add_argument(
+        "--out", type=Path, required=True, metavar="DIR",
+        help="output directory for the manifest and payload",
+    )
+    stack_parser.add_argument("--name", required=True, metavar="NAME")
+    stack_parser.add_argument(
+        "--voxel-size", type=float, nargs=3, default=None,
+        metavar=("X", "Y", "Z"), help="override config voxel_size_xyz_m",
+    )
+    stack_parser.add_argument(
+        "--format", choices=("pgm", "png"), default=None, dest="image_format",
+        help="override config slice format",
+    )
 
     counts_parser = commands.add_parser(
         "material-counts", help="print voxel counts per material id"
@@ -124,17 +153,45 @@ def _cmd_validate(manifest: Path) -> int:
     return 0
 
 
+def _print_material_counts(volume: MaterialLabelVolume) -> None:
+    counts = material_counts(volume)
+    for material in volume.palette:
+        print(
+            f"{material.material_id} ({material.name}, {material.role}): "
+            f"{counts[material.material_id]}"
+        )
+
+
 def _cmd_material_counts(manifest: Path, *, json_output: bool) -> int:
     volume = read_material_label_manifest(manifest)
-    counts = material_counts(volume)
     if json_output:
+        counts = material_counts(volume)
         print(json.dumps({str(k): v for k, v in counts.items()}, indent=2))
     else:
-        for material in volume.palette:
-            print(
-                f"{material.material_id} ({material.name}, {material.role}): "
-                f"{counts[material.material_id]}"
-            )
+        _print_material_counts(volume)
+    return 0
+
+
+def _cmd_convert_image_stack(
+    slices_dir: Path,
+    config_path: Path,
+    out: Path,
+    name: str,
+    voxel_size: list[float] | None,
+    image_format: str | None,
+) -> int:
+    config = ImageStackConfig.from_json(config_path.read_text(encoding="utf-8"))
+    if voxel_size is not None:
+        config = dataclasses.replace(
+            config,
+            voxel_size_xyz_m=(voxel_size[0], voxel_size[1], voxel_size[2]),
+        )
+    if image_format is not None:
+        config = dataclasses.replace(config, format=image_format)
+    volume = convert_image_stack(slices_dir, config)
+    manifest = write_asset(volume, out, name, identity=stack_identity(volume))
+    print(f"wrote {manifest}")
+    _print_material_counts(volume)
     return 0
 
 
@@ -169,6 +226,15 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "generate-fixture":
             return _cmd_generate_fixture(
                 arguments.preset, arguments.output, arguments.seed
+            )
+        if arguments.command == "convert-image-stack":
+            return _cmd_convert_image_stack(
+                arguments.slices_dir,
+                arguments.config,
+                arguments.out,
+                arguments.name,
+                arguments.voxel_size,
+                arguments.image_format,
             )
         if arguments.command == "material-counts":
             return _cmd_material_counts(

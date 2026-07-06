@@ -113,6 +113,53 @@ def test_preview_slices_bad_index_returns_1(
     assert "out of range" in capsys.readouterr().err
 
 
+def test_convert_image_stack_with_overrides(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from vdbmat_utils.fixtures import write_image_stack_fixture
+
+    slices_dir, config = write_image_stack_fixture(tmp_path / "slices")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(config.to_json(), encoding="utf-8")
+    out_dir = tmp_path / "out"
+    assert main(
+        [
+            "convert-image-stack", str(slices_dir),
+            "--config", str(config_path),
+            "--out", str(out_dir),
+            "--name", "stack",
+            "--voxel-size", "0.001", "0.002", "0.004",
+        ]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "stack.voxels.json" in output
+    assert "(air, background):" in output
+    capsys.readouterr()
+    assert main(["inspect", str(out_dir / "stack.voxels.json"), "--json"]) == 0
+    inspected = json.loads(capsys.readouterr().out)
+    assert inspected["voxel_size_xyz_m"] == [0.001, 0.002, 0.004]
+
+
+def test_convert_image_stack_bad_stack_returns_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from vdbmat_utils.fixtures import write_image_stack_fixture
+
+    slices_dir, config = write_image_stack_fixture(tmp_path / "slices")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(config.to_json(), encoding="utf-8")
+    (slices_dir / "slice_0001.pgm").unlink()
+    assert main(
+        [
+            "convert-image-stack", str(slices_dir),
+            "--config", str(config_path),
+            "--out", str(tmp_path / "out"),
+            "--name", "stack",
+        ]
+    ) == 1
+    assert "missing index" in capsys.readouterr().err
+
+
 def test_fixture_seed_changes_nothing_for_seedless_presets(tmp_path: Path) -> None:
     a = tmp_path / "a"
     b = tmp_path / "b"
