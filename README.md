@@ -7,11 +7,12 @@ validated against the pinned `vdbmat` version.
 
 ## Status
 
-Phase 0 (repository and contract foundation) complete: canonical construction helpers, a
-deterministic asset writer, golden-fixture contract tests against the pinned `vdbmat`, and the
-`inspect` / `validate` / `generate-fixture` CLI. Next: Phase 1 (mesh and image-stack conversion
-workflows). Plans and reports live in `.devdocs/vdbmat-utils/` of the parent `pj-voxel3dprint`
-repository; decisions in `docs/adr/`.
+Phase 0 (repository and contract foundation) and Phase 1 (first conversion workflows) complete:
+mesh voxelization (`voxelize-mesh`), image-stack conversion (`convert-image-stack`), previews and
+diagnostics (`preview-slices`, `material-counts`), plus the Phase 0 `inspect` / `validate` /
+`generate-fixture` CLI — all deterministic and contract-tested against the pinned `vdbmat`.
+Next: Phase 2 (image morphing and volume composition). Plans and reports live in
+`.devdocs/vdbmat-utils/` of the parent `pj-voxel3dprint` repository; decisions in `docs/adr/`.
 
 ## Installation
 
@@ -25,28 +26,47 @@ cd pj-voxel3dprint/vdbmat-utils
 uv sync            # minimal install: numpy + vdbmat + dev tools
 ```
 
-Optional extras (`mesh`, `image`, `vdb`, `preview`) are reserved for later phases and currently
-empty.
+The minimal install covers STL voxelization, PGM image stacks, and all previews. The `image`
+extra (`uv sync --extra image`) adds PNG slice input; `mesh` and `preview` are deliberately
+empty, `vdb` is reserved for Phase 5.
 
 ## Usage
 
+### Mesh workflow (`docs/voxelization.md`)
+
 ```bash
-# write a deterministic synthetic asset
-uv run vdbmat-utils generate-fixture multimaterial -o out/
+# config: source_unit (required), voxel_size_xyz_m, material block, ...
+uv run vdbmat-utils voxelize-mesh part.stl --config mesh.json --out out/ --name part
 
-# metadata-only view (add --json for machine-readable output)
-uv run vdbmat-utils inspect out/multimaterial.voxels.json
+# inspect the result visually (works without OpenVDB/matplotlib)
+uv run vdbmat-utils preview-slices out/part.voxels.json --axis z
+uv run vdbmat-utils material-counts out/part.voxels.json
+```
 
-# full contract validation (payload checksum, palette, transform, schema range)
-uv run vdbmat-utils validate out/multimaterial.voxels.json
+Accepts one watertight, consistently oriented STL solid (binary or ASCII); invalid topology,
+missing units, or oversized grids fail with a one-line diagnostic.
 
-# hand off to vdbmat
-uv run vdbmat import-voxels out/multimaterial.voxels.json out/multimaterial.zarr
+### Image-stack workflow (`docs/image-stacks.md`)
+
+```bash
+# slices/: PGM (or PNG with the image extra), stacked in filename order as z
+uv run vdbmat-utils convert-image-stack slices/ --config stack.json --out out/ --name stack
+```
+
+Every gray value must be declared in the config's `levels`; gaps in numbered sequences and
+shape mismatches are errors.
+
+### Validation and hand-off
+
+```bash
+uv run vdbmat-utils validate out/part.voxels.json
+uv run vdbmat import-voxels out/part.voxels.json out/part.zarr
+uv run vdbmat convert out/part.zarr out/part-optical.zarr
 ```
 
 Exit codes: 0 success, 1 validation/generation failure, 2 usage error.
-Fixture presets: `anisotropic`, `transformed`, `multimaterial` (see
-`vdbmat_utils.fixtures`); outputs are byte-deterministic per `docs/determinism.md`.
+Synthetic fixture presets (`generate-fixture`): `anisotropic`, `transformed`, `multimaterial`
+(see `vdbmat_utils.fixtures`); all outputs are byte-deterministic per `docs/determinism.md`.
 
 ## Development
 
