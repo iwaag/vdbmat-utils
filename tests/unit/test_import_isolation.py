@@ -22,6 +22,7 @@ _ALLOWED_SIBLINGS: dict[str, set[str]] = {
     "fields": {"core"},
     "morph": {"core", "io", "ops", "fields", "image"},
     "pipeline": {"core", "io", "ops", "fields", "morph", "preview"},
+    "procgen": {"core", "io", "fields", "preview"},
 }
 
 

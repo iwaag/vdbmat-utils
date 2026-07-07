@@ -12,7 +12,7 @@ from pathlib import Path
 import vdbmat_utils
 
 _PACKAGE_ROOT = Path(vdbmat_utils.__file__).parent
-_GUARDED_PACKAGES = ("ops", "morph")
+_GUARDED_PACKAGES = ("ops", "morph", "procgen")
 _FORBIDDEN_CALLS = {
     "interp",
     "interpn",
