@@ -13,16 +13,41 @@ class ProcgenError(VdbmatUtilsError):
     """A procedural-generator input violates its contract."""
 
 
+from .cells import WorleyCells, worley, worley_at  # noqa: E402
+from .connectivity import ComponentResult, connected_components  # noqa: E402
 from .domain import FormationDomain  # noqa: E402
-from .hashing import hash_lattice, hash_to_unit  # noqa: E402
-from .noise import fbm, gradient_noise, ridged_fbm  # noqa: E402
+from .hashing import hash_derive, hash_lattice, hash_to_unit  # noqa: E402
+from .morphology import close_mask, dilate, erode, open_mask  # noqa: E402
+from .noise import (  # noqa: E402
+    fbm,
+    fbm_at,
+    gradient_noise,
+    gradient_noise_at,
+    ridged_fbm,
+    ridged_fbm_at,
+)
+from .warp import warped_coordinates  # noqa: E402
 
 __all__ = [
+    "ComponentResult",
     "FormationDomain",
     "ProcgenError",
+    "WorleyCells",
+    "close_mask",
+    "connected_components",
+    "dilate",
+    "erode",
     "fbm",
+    "fbm_at",
     "gradient_noise",
+    "gradient_noise_at",
+    "hash_derive",
     "hash_lattice",
     "hash_to_unit",
+    "open_mask",
     "ridged_fbm",
+    "ridged_fbm_at",
+    "warped_coordinates",
+    "worley",
+    "worley_at",
 ]

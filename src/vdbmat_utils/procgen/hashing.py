@@ -86,6 +86,23 @@ def hash_lattice(
     return state
 
 
+def hash_derive(hashes: npt.NDArray[np.uint64], *, salt: int) -> npt.NDArray[np.uint64]:
+    """Derive an independent hash stream from existing hashes.
+
+    Used where one lattice point needs several independent uniform draws
+    (cell jitter components, per-cell material picks): each consumer folds a
+    distinct non-negative ``salt`` into the parent hash. The derivation is
+    ``mix(h ^ (2*salt + 1) * KEY)`` — fixed by ADR-0010.
+    """
+    if not isinstance(salt, int) or isinstance(salt, bool) or salt < 0:
+        from . import ProcgenError
+
+        raise ProcgenError(f"salt must be a non-negative integer, got {salt!r}")
+    salt_word = np.asarray((salt * 2 + 1) & ((1 << 64) - 1), dtype=np.uint64)
+    with np.errstate(over="ignore"):
+        return _mix(hashes ^ (salt_word * _KEY_STREAM))
+
+
 def hash_to_unit(hashes: npt.NDArray[np.uint64]) -> npt.NDArray[np.float64]:
     """Map uint64 hashes to uniform float64 values in ``[0, 1)``.
 

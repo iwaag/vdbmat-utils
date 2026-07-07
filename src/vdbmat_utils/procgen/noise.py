@@ -5,6 +5,11 @@ from the counter-based lattice hash — so noise values depend only on physical
 coordinates, the stream id, and the seed, never on domain bounds or evaluation
 order. Frequencies are denominated in cycles per metre; anisotropy comes from
 domain warping, not per-axis frequency.
+
+Each primitive has two forms: a coordinate-level ``*_at`` function evaluating
+at arbitrary metre coordinates (this is what domain warping feeds displaced
+coordinates into), and a domain-level wrapper returning a ``ScalarField`` on a
+:class:`~vdbmat_utils.procgen.domain.FormationDomain`.
 """
 
 import numpy as np
@@ -63,50 +68,26 @@ def _lerp(
     return result
 
 
-def _corner_dot(
-    cell_x: npt.NDArray[np.int64],
-    cell_y: npt.NDArray[np.int64],
-    cell_z: npt.NDArray[np.int64],
-    frac_x: npt.NDArray[np.float64],
-    frac_y: npt.NDArray[np.float64],
-    frac_z: npt.NDArray[np.float64],
-    corner: tuple[int, int, int],
-    *,
-    stream_id: int,
-    seed: int,
-) -> npt.NDArray[np.float64]:
-    cx, cy, cz = corner
-    hashes = hash_lattice(
-        cell_x + cx, cell_y + cy, cell_z + cz, stream_id=stream_id, seed=seed
-    )
-    index = (hashes % _TWELVE).astype(np.intp)
-    result: npt.NDArray[np.float64] = (
-        _GRAD_X[index] * (frac_x - cx)
-        + _GRAD_Y[index] * (frac_y - cy)
-        + _GRAD_Z[index] * (frac_z - cz)
-    )
-    return result
-
-
-def gradient_noise(
-    domain: FormationDomain,
+def gradient_noise_at(
+    x: npt.NDArray[np.float64],
+    y: npt.NDArray[np.float64],
+    z: npt.NDArray[np.float64],
     *,
     frequency_per_m: float,
     stream_id: int,
     seed: int,
-) -> ScalarField:
-    """Single-octave gradient noise sampled at the domain's voxel centres.
+) -> npt.NDArray[np.float64]:
+    """Single-octave gradient noise at arbitrary metre coordinates.
 
+    ``x``/``y``/``z`` are broadcastable float64 arrays of metre coordinates.
     Output values lie in approximately ``[-1, 1]`` (not clamped, not
     rescaled). The noise lattice has pitch ``1 / frequency_per_m`` metres and
-    is anchored at the local origin, so a domain extended at its far end
-    reproduces the original interior exactly.
+    is anchored at the coordinate origin.
     """
     frequency = _validate_positive(frequency_per_m, name="frequency_per_m")
-    x, y, z = domain.coordinates_xyz_m()
-    lattice_x = x * frequency
-    lattice_y = y * frequency
-    lattice_z = z * frequency
+    lattice_x = np.asarray(x, dtype=np.float64) * frequency
+    lattice_y = np.asarray(y, dtype=np.float64) * frequency
+    lattice_z = np.asarray(z, dtype=np.float64) * frequency
     cell_x = np.floor(lattice_x).astype(np.int64)
     cell_y = np.floor(lattice_y).astype(np.int64)
     cell_z = np.floor(lattice_z).astype(np.int64)
@@ -115,17 +96,17 @@ def gradient_noise(
     frac_z = lattice_z - cell_z
 
     def dot(corner: tuple[int, int, int]) -> npt.NDArray[np.float64]:
-        return _corner_dot(
-            cell_x,
-            cell_y,
-            cell_z,
-            frac_x,
-            frac_y,
-            frac_z,
-            corner,
-            stream_id=stream_id,
-            seed=seed,
+        cx, cy, cz = corner
+        hashes = hash_lattice(
+            cell_x + cx, cell_y + cy, cell_z + cz, stream_id=stream_id, seed=seed
         )
+        index = (hashes % _TWELVE).astype(np.intp)
+        result: npt.NDArray[np.float64] = (
+            _GRAD_X[index] * (frac_x - cx)
+            + _GRAD_Y[index] * (frac_y - cy)
+            + _GRAD_Z[index] * (frac_z - cz)
+        )
+        return result
 
     u = _fade(frac_x)
     v = _fade(frac_y)
@@ -137,12 +118,7 @@ def gradient_noise(
     x11 = _lerp(dot((0, 1, 1)), dot((1, 1, 1)), u)
     y0 = _lerp(x00, x10, v)
     y1 = _lerp(x01, x11, v)
-    values = np.ascontiguousarray(_lerp(y0, y1, w))
-    return ScalarField(
-        values=values,
-        voxel_size_xyz_m=domain.voxel_size_xyz_m,
-        local_to_world=domain.local_to_world,
-    )
+    return _lerp(y0, y1, w)
 
 
 def _fractal_parameters(
@@ -159,6 +135,117 @@ def _fractal_parameters(
     )
 
 
+def fbm_at(
+    x: npt.NDArray[np.float64],
+    y: npt.NDArray[np.float64],
+    z: npt.NDArray[np.float64],
+    *,
+    frequency_per_m: float,
+    octaves: int,
+    lacunarity: float = 2.0,
+    gain: float = 0.5,
+    stream_id: int,
+    seed: int,
+) -> npt.NDArray[np.float64]:
+    """Fractal Brownian motion at arbitrary metre coordinates.
+
+    Octave ``i`` uses frequency ``frequency_per_m * lacunarity**i``, amplitude
+    ``gain**i``, and stream id ``stream_id + i`` (plan D3 stream scheme). The
+    sum is divided by the total amplitude, so the output range is
+    approximately ``[-1, 1]`` independent of the octave count.
+    """
+    octaves, lacunarity, gain = _fractal_parameters(octaves, lacunarity, gain)
+    frequency = _validate_positive(frequency_per_m, name="frequency_per_m")
+    shape = np.broadcast_shapes(np.shape(x), np.shape(y), np.shape(z))
+    total = np.zeros(shape, dtype=np.float64)
+    amplitude_sum = 0.0
+    for octave in range(octaves):
+        amplitude = gain**octave
+        total += amplitude * gradient_noise_at(
+            x,
+            y,
+            z,
+            frequency_per_m=frequency * lacunarity**octave,
+            stream_id=stream_id + octave,
+            seed=seed,
+        )
+        amplitude_sum += amplitude
+    result: npt.NDArray[np.float64] = total / amplitude_sum
+    return result
+
+
+def ridged_fbm_at(
+    x: npt.NDArray[np.float64],
+    y: npt.NDArray[np.float64],
+    z: npt.NDArray[np.float64],
+    *,
+    frequency_per_m: float,
+    octaves: int,
+    lacunarity: float = 2.0,
+    gain: float = 0.5,
+    stream_id: int,
+    seed: int,
+) -> npt.NDArray[np.float64]:
+    """Ridged fractal noise at arbitrary metre coordinates.
+
+    Each octave contributes ``(1 - |noise|) ** 2`` (the standard ridge
+    formula), accumulated exactly like :func:`fbm_at` — amplitude ``gain**i``,
+    frequency ``frequency_per_m * lacunarity**i``, stream id
+    ``stream_id + i`` — and divided by the total amplitude. Output lies in
+    ``[0, 1]``, with values near 1 along the ridge sheets.
+    """
+    octaves, lacunarity, gain = _fractal_parameters(octaves, lacunarity, gain)
+    frequency = _validate_positive(frequency_per_m, name="frequency_per_m")
+    shape = np.broadcast_shapes(np.shape(x), np.shape(y), np.shape(z))
+    total = np.zeros(shape, dtype=np.float64)
+    amplitude_sum = 0.0
+    for octave in range(octaves):
+        amplitude = gain**octave
+        octave_values = gradient_noise_at(
+            x,
+            y,
+            z,
+            frequency_per_m=frequency * lacunarity**octave,
+            stream_id=stream_id + octave,
+            seed=seed,
+        )
+        total += amplitude * (1.0 - np.abs(octave_values)) ** 2
+        amplitude_sum += amplitude
+    result: npt.NDArray[np.float64] = total / amplitude_sum
+    return result
+
+
+def _as_field(
+    domain: FormationDomain, values: npt.NDArray[np.float64]
+) -> ScalarField:
+    return ScalarField(
+        values=np.ascontiguousarray(np.broadcast_to(values, domain.shape_zyx)),
+        voxel_size_xyz_m=domain.voxel_size_xyz_m,
+        local_to_world=domain.local_to_world,
+    )
+
+
+def gradient_noise(
+    domain: FormationDomain,
+    *,
+    frequency_per_m: float,
+    stream_id: int,
+    seed: int,
+) -> ScalarField:
+    """Single-octave gradient noise sampled at the domain's voxel centres.
+
+    A domain extended at its far end reproduces the original interior exactly
+    (the lattice is anchored at the local origin).
+    """
+    x, y, z = domain.coordinates_xyz_m()
+    return _as_field(
+        domain,
+        gradient_noise_at(
+            x, y, z, frequency_per_m=frequency_per_m, stream_id=stream_id, seed=seed
+        ),
+    )
+
+
 def fbm(
     domain: FormationDomain,
     *,
@@ -169,31 +256,21 @@ def fbm(
     stream_id: int,
     seed: int,
 ) -> ScalarField:
-    """Fractal Brownian motion: amplitude-weighted sum of noise octaves.
-
-    Octave ``i`` uses frequency ``frequency_per_m * lacunarity**i``, amplitude
-    ``gain**i``, and stream id ``stream_id + i`` (plan D3 stream scheme). The
-    sum is divided by the total amplitude, so the output range is
-    approximately ``[-1, 1]`` independent of the octave count.
-    """
-    octaves, lacunarity, gain = _fractal_parameters(octaves, lacunarity, gain)
-    frequency = _validate_positive(frequency_per_m, name="frequency_per_m")
-    total = np.zeros(domain.shape_zyx, dtype=np.float64)
-    amplitude_sum = 0.0
-    for octave in range(octaves):
-        amplitude = gain**octave
-        octave_field = gradient_noise(
-            domain,
-            frequency_per_m=frequency * lacunarity**octave,
-            stream_id=stream_id + octave,
+    """Fractal Brownian motion sampled at the domain's voxel centres."""
+    x, y, z = domain.coordinates_xyz_m()
+    return _as_field(
+        domain,
+        fbm_at(
+            x,
+            y,
+            z,
+            frequency_per_m=frequency_per_m,
+            octaves=octaves,
+            lacunarity=lacunarity,
+            gain=gain,
+            stream_id=stream_id,
             seed=seed,
-        )
-        total += amplitude * octave_field.values
-        amplitude_sum += amplitude
-    return ScalarField(
-        values=total / amplitude_sum,
-        voxel_size_xyz_m=domain.voxel_size_xyz_m,
-        local_to_world=domain.local_to_world,
+        ),
     )
 
 
@@ -207,31 +284,19 @@ def ridged_fbm(
     stream_id: int,
     seed: int,
 ) -> ScalarField:
-    """Ridged fractal noise: sharp creases for veins and fracture guides.
-
-    Each octave contributes ``(1 - |noise|) ** 2`` (the standard ridge
-    formula), accumulated exactly like :func:`fbm` — amplitude ``gain**i``,
-    frequency ``frequency_per_m * lacunarity**i``, stream id
-    ``stream_id + i`` — and divided by the total amplitude. Output lies in
-    ``[0, 1]``, with values near 1 along the ridge sheets.
-    """
-    octaves, lacunarity, gain = _fractal_parameters(octaves, lacunarity, gain)
-    frequency = _validate_positive(frequency_per_m, name="frequency_per_m")
-    total = np.zeros(domain.shape_zyx, dtype=np.float64)
-    amplitude_sum = 0.0
-    for octave in range(octaves):
-        amplitude = gain**octave
-        octave_field = gradient_noise(
-            domain,
-            frequency_per_m=frequency * lacunarity**octave,
-            stream_id=stream_id + octave,
+    """Ridged fractal noise sampled at the domain's voxel centres."""
+    x, y, z = domain.coordinates_xyz_m()
+    return _as_field(
+        domain,
+        ridged_fbm_at(
+            x,
+            y,
+            z,
+            frequency_per_m=frequency_per_m,
+            octaves=octaves,
+            lacunarity=lacunarity,
+            gain=gain,
+            stream_id=stream_id,
             seed=seed,
-        )
-        ridge = (1.0 - np.abs(octave_field.values)) ** 2
-        total += amplitude * ridge
-        amplitude_sum += amplitude
-    return ScalarField(
-        values=total / amplitude_sum,
-        voxel_size_xyz_m=domain.voxel_size_xyz_m,
-        local_to_world=domain.local_to_world,
+        ),
     )
