@@ -48,6 +48,7 @@ from vdbmat_utils.procgen.stats import (
     stats_report_dict,
     write_stats_report,
 )
+from vdbmat_utils.procgen.sweep import SweepConfig, run_sweep
 
 _EXPECTED_ERRORS = (
     VdbmatUtilsError,
@@ -205,6 +206,20 @@ def build_parser() -> argparse.ArgumentParser:
     formation_parser.add_argument("--name", required=True, metavar="NAME")
     formation_parser.add_argument("--seed", type=int, default=None)
     formation_parser.add_argument("--strict", action="store_true")
+
+    sweep_parser = commands.add_parser(
+        "sweep-formation",
+        help="run a parameter grid of procedural formations",
+    )
+    sweep_parser.add_argument(
+        "--config", type=Path, required=True, metavar="CONFIG",
+        help="SweepConfig JSON",
+    )
+    sweep_parser.add_argument(
+        "--out", type=Path, required=True, metavar="DIR",
+        help="output directory for run directories and sweep_summary.json",
+    )
+    sweep_parser.add_argument("--name", required=True, metavar="NAME")
 
     formation_stats_parser = commands.add_parser(
         "formation-stats",
@@ -477,6 +492,15 @@ def _cmd_formation_stats(
     return 0
 
 
+def _cmd_sweep_formation(config_path: Path, out: Path, name: str) -> int:
+    config = SweepConfig.from_json(config_path.read_text(encoding="utf-8"))
+    result = run_sweep(config, out=out, name=name)
+    print(f"wrote {result.summary_path}")
+    for run in result.runs:
+        print(f"run {run.index:03d}: {run.manifest}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     try:
@@ -537,6 +561,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_formation_stats(
                 arguments.manifest, arguments.constraints, arguments.out
             )
+        if arguments.command == "sweep-formation":
+            return _cmd_sweep_formation(arguments.config, arguments.out, arguments.name)
         if arguments.command == "material-counts":
             return _cmd_material_counts(
                 arguments.manifest, json_output=arguments.json_output

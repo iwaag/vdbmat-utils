@@ -1,0 +1,101 @@
+{
+  "axes": [
+    {
+      "path": "seed",
+      "values": [
+        3107,
+        3108
+      ]
+    },
+    {
+      "path": "layers.1.width_m",
+      "values": [
+        0.001,
+        0.0014
+      ]
+    }
+  ],
+  "base": {
+    "layers": [
+      {
+        "kind": "host",
+        "material_id": 1
+      },
+      {
+        "axis": "x",
+        "kind": "veins",
+        "material_id": 2,
+        "offset_m": 0.002,
+        "spacing_m": 0.005,
+        "warp_amplitude_m": 0.0008,
+        "warp_frequency_per_m": 180.0,
+        "warp_octaves": 2,
+        "width_m": 0.001
+      }
+    ],
+    "mapping": {
+      "configuration_id": "phase3-tiny-sweep-materials-v1",
+      "materials": [
+        {
+          "g": 0.0,
+          "ior": 1.5,
+          "name": "sweep-matrix",
+          "sigma_a_rgb_per_m": [
+            12.0,
+            12.0,
+            12.0
+          ],
+          "sigma_s_rgb_per_m": [
+            120.0,
+            120.0,
+            120.0
+          ]
+        },
+        {
+          "g": 0.0,
+          "ior": 1.52,
+          "name": "sweep-vein",
+          "sigma_a_rgb_per_m": [
+            6.0,
+            6.0,
+            6.0
+          ],
+          "sigma_s_rgb_per_m": [
+            180.0,
+            180.0,
+            180.0
+          ]
+        }
+      ]
+    },
+    "palette": [
+      {
+        "material_id": 0,
+        "name": "air",
+        "role": "background"
+      },
+      {
+        "material_id": 1,
+        "name": "sweep-matrix",
+        "role": "material"
+      },
+      {
+        "material_id": 2,
+        "name": "sweep-vein",
+        "role": "material"
+      }
+    ],
+    "seed": 3107,
+    "shape_zyx": [
+      11,
+      13,
+      15
+    ],
+    "voxel_size_xyz_m": [
+      0.0005,
+      0.0005,
+      0.0005
+    ]
+  },
+  "max_runs": 4
+}

@@ -185,7 +185,10 @@ def write_formation(
         generator_version=GENERATOR_VERSION,
         config=config,
         sources=(f"mapping-digest:{mapping.digest}",),
-        notes="procedural formation; constraints are measured, not repaired",
+        notes=(
+            "procedural formation; constraints are measured, not repaired; "
+            f"mapping_digest={mapping.digest}"
+        ),
     )
     volume = build_material_label_volume(
         material_id=labels,

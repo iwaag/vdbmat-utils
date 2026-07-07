@@ -7,13 +7,13 @@ validated against the pinned `vdbmat` version.
 
 ## Status
 
-Phases 0–2 complete: mesh voxelization (`voxelize-mesh`), image-stack conversion
+Phases 0–3 complete: mesh voxelization (`voxelize-mesh`), image-stack conversion
 (`convert-image-stack`), key-slice morphing (`morph-stack`), config-driven volume-op pipelines
-(`apply-pipeline`), previews and diagnostics (`preview-slices`, `material-counts`), plus the
-Phase 0 `inspect` / `validate` / `generate-fixture` CLI — all deterministic and contract-tested
-against the pinned `vdbmat`. Next: Phase 3 (procedural natural-material generators). Plans and
-reports live in `.devdocs/vdbmat-utils/` of the parent `pj-voxel3dprint` repository; decisions
-in `docs/adr/`.
+(`apply-pipeline`), procedural formations (`generate-formation`, `formation-stats`,
+`sweep-formation`), previews and diagnostics (`preview-slices`, `material-counts`), plus the
+Phase 0 `inspect` / `validate` / `generate-fixture` CLI. All are deterministic and
+contract-tested against the pinned `vdbmat`. Plans and reports live in
+`.devdocs/vdbmat-utils/` of the parent `pj-voxel3dprint` repository; decisions in `docs/adr/`.
 
 ## Installation
 
@@ -77,6 +77,23 @@ uv run vdbmat-utils apply-pipeline --config pipeline.json --out out/ --name resu
 
 Volume-operation semantics (geometry rules, boolean modes, conservation claims):
 `docs/volume-ops.md`.
+
+### Procedural formation workflow (`docs/procedural.md`)
+
+```bash
+uv run vdbmat-utils generate-formation \
+  --config examples/phase3/marble-like.formation.json \
+  --out out/marble --name marble-like --strict
+uv run vdbmat-utils formation-stats out/marble/marble-like.voxels.json
+uv run vdbmat-utils sweep-formation \
+  --config examples/phase3/tiny-sweep.sweep.json \
+  --out out/sweep --name tiny
+```
+
+Formation configs compose host, strata, veins, grains, pores, and fractures as
+discrete material labels. Non-built-in material names emit a companion
+`vdbmat.optical-mapping` document; see `docs/optical-mappings.md`. Metrics and
+constraint forms are in `docs/stats.md`.
 
 ### Validation and hand-off
 
