@@ -40,6 +40,14 @@ from vdbmat_utils.mesh.voxelizer import SUPPORTED_MESH_UNITS
 from vdbmat_utils.morph import MorphStackConfig, morph_stack
 from vdbmat_utils.pipeline import PipelineConfig, run_pipeline, validate_pipeline
 from vdbmat_utils.preview import material_counts, slice_ascii, slice_pgm
+from vdbmat_utils.procgen.models import FormationConfig, write_formation
+from vdbmat_utils.procgen.stats import (
+    ConstraintResult,
+    compute_stats,
+    evaluate_constraints,
+    stats_report_dict,
+    write_stats_report,
+)
 
 _EXPECTED_ERRORS = (
     VdbmatUtilsError,
@@ -180,6 +188,36 @@ def build_parser() -> argparse.ArgumentParser:
     mesh_parser.add_argument(
         "--padding", type=int, default=None, dest="padding_cells",
         help="override config padding_cells",
+    )
+
+    formation_parser = commands.add_parser(
+        "generate-formation",
+        help="generate a seeded procedural material formation",
+    )
+    formation_parser.add_argument(
+        "--config", type=Path, required=True, metavar="CONFIG",
+        help="FormationConfig JSON",
+    )
+    formation_parser.add_argument(
+        "--out", type=Path, required=True, metavar="DIR",
+        help="output directory for the manifest, payload, stats, and mapping",
+    )
+    formation_parser.add_argument("--name", required=True, metavar="NAME")
+    formation_parser.add_argument("--seed", type=int, default=None)
+    formation_parser.add_argument("--strict", action="store_true")
+
+    formation_stats_parser = commands.add_parser(
+        "formation-stats",
+        help="compute procedural formation statistics for any label manifest",
+    )
+    formation_stats_parser.add_argument("manifest", type=Path, metavar="MANIFEST")
+    formation_stats_parser.add_argument(
+        "--constraints", type=Path, default=None, metavar="CONFIG",
+        help="FormationConfig JSON whose constraints should be evaluated",
+    )
+    formation_stats_parser.add_argument(
+        "--out", type=Path, default=None, metavar="STATS.json",
+        help="write the canonical stats report to a file",
     )
 
     counts_parser = commands.add_parser(
@@ -390,6 +428,55 @@ def _cmd_generate_fixture(preset: str, output: Path, seed: int) -> int:
     return 0
 
 
+def _cmd_generate_formation(
+    config_path: Path,
+    out: Path,
+    name: str,
+    seed: int | None,
+    *,
+    strict: bool,
+) -> int:
+    config = FormationConfig.from_json(config_path.read_text(encoding="utf-8"))
+    if seed is not None:
+        config = dataclasses.replace(config, seed=seed)
+    written = write_formation(config, out=out, name=name)
+    print(f"wrote {written.manifest}")
+    volume = read_material_label_manifest(written.manifest)
+    _print_material_counts(volume)
+    print(f"stats: {written.stats_path}")
+    if written.mapping_path is not None:
+        print(f"mapping: {written.mapping_path}")
+    print(f"mapping_digest: {written.mapping_digest}")
+    for result in written.constraints:
+        status = "PASS" if result.passed else "FAIL"
+        print(
+            f"{status}: {result.kind} material_id={result.material_id}: "
+            f"{result.message}"
+        )
+    if strict and any(not result.passed for result in written.constraints):
+        return 1
+    return 0
+
+
+def _cmd_formation_stats(
+    manifest: Path, constraints_path: Path | None, out: Path | None
+) -> int:
+    volume = read_material_label_manifest(manifest)
+    stats = compute_stats(volume)
+    constraints: tuple[ConstraintResult, ...] = ()
+    if constraints_path is not None:
+        config = FormationConfig.from_json(
+            constraints_path.read_text(encoding="utf-8")
+        )
+        constraints = evaluate_constraints(stats, config.constraints)
+    if out is not None:
+        path = write_stats_report(out, stats, constraints)
+        print(f"wrote {path}")
+    else:
+        print(json.dumps(stats_report_dict(stats, constraints), indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     try:
@@ -437,6 +524,18 @@ def main(argv: list[str] | None = None) -> int:
                 arguments.material_id,
                 arguments.material_name,
                 arguments.padding_cells,
+            )
+        if arguments.command == "generate-formation":
+            return _cmd_generate_formation(
+                arguments.config,
+                arguments.out,
+                arguments.name,
+                arguments.seed,
+                strict=arguments.strict,
+            )
+        if arguments.command == "formation-stats":
+            return _cmd_formation_stats(
+                arguments.manifest, arguments.constraints, arguments.out
             )
         if arguments.command == "material-counts":
             return _cmd_material_counts(

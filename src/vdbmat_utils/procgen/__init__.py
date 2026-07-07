@@ -26,6 +26,7 @@ from .noise import (  # noqa: E402
     ridged_fbm,
     ridged_fbm_at,
 )
+from .stats import compute_stats, evaluate_constraints  # noqa: E402
 from .warp import warped_coordinates  # noqa: E402
 
 __all__ = [
@@ -34,9 +35,11 @@ __all__ = [
     "ProcgenError",
     "WorleyCells",
     "close_mask",
+    "compute_stats",
     "connected_components",
     "dilate",
     "erode",
+    "evaluate_constraints",
     "fbm",
     "fbm_at",
     "gradient_noise",
