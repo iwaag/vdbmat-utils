@@ -16,9 +16,11 @@ from vdbmat.core import (
 )
 
 from vdbmat_utils.core import (
+    ConfigError,
     GeneratorConfig,
     build_material_label_volume,
     build_provenance,
+    provenance_identity,
 )
 from vdbmat_utils.image import ImageStackError
 from vdbmat_utils.image.pgm import read_pgm
@@ -146,14 +148,10 @@ def _read_slice(path: Path, image_format: str) -> npt.NDArray[np.uint8]:
 def stack_identity(volume: MaterialLabelVolume) -> str:
     """Asset identity per D6: SHA-256 over the concatenated per-slice digests
     (provenance ``sources``, in stack order) plus the configuration digest."""
-    combined = hashlib.sha256()
-    for source in volume.provenance.sources:
-        combined.update(source.encode("utf-8"))
-    configuration_digest = volume.provenance.configuration_digest
-    if configuration_digest is None:  # pragma: no cover - convert always sets it
-        raise ImageStackError("volume provenance has no configuration digest")
-    combined.update(configuration_digest.encode("utf-8"))
-    return f"sha256:{combined.hexdigest()}"
+    try:
+        return provenance_identity(volume.provenance)
+    except ConfigError as error:  # pragma: no cover - convert always sets it
+        raise ImageStackError(f"volume provenance: {error}") from error
 
 
 def convert_image_stack(

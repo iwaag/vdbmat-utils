@@ -15,7 +15,7 @@ from .errors import (
     PaletteError,
     VdbmatUtilsError,
 )
-from .provenance import build_provenance
+from .provenance import build_provenance, provenance_identity
 from .seeds import rng_from_seed, spawn_rngs
 
 __all__ = [
@@ -30,6 +30,7 @@ __all__ = [
     "build_provenance",
     "config_digest",
     "config_to_canonical_json",
+    "provenance_identity",
     "require_compatible_volume_schema",
     "rng_from_seed",
     "spawn_rngs",
