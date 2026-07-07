@@ -9,6 +9,7 @@ transposition errors cannot cancel out.
 """
 
 import dataclasses
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -19,7 +20,9 @@ from vdbmat.core import MaterialDefinition, MaterialLabelVolume, MaterialRole
 from .core import GeneratorConfig, build_material_label_volume, build_provenance
 from .core.errors import ConfigError
 from .image import ImageStackConfig
+from .io import write_asset
 from .mesh import MeshVoxelizeConfig
+from .morph import MorphStackConfig
 
 GENERATOR_NAME = "vdbmat-utils-fixture"
 GENERATOR_VERSION = "0.1.0"
@@ -260,6 +263,122 @@ def write_mesh_fixture(directory: Path) -> tuple[Path, MeshVoxelizeConfig]:
         },
     )
     return mesh_path, config
+
+
+# Morph fixture (Phase 2): a sparse key-slice set with a merge event. Gray
+# levels and material names match the image-stack fixture so material ids
+# stay inside the pinned vdbmat builtin optical mapping (`vdbmat convert`
+# stays runnable). Slices are 10 (y) x 12 (x); keys at z = 0, 3, 7 with
+# interpolated gaps between them.
+
+_MORPH_KEY_INDICES = (0, 3, 7)
+_MORPH_SHAPE_YX = (10, 12)
+
+
+def _morph_key_pixels(z_index: int) -> npt.NDArray[np.uint8]:
+    pixels = np.zeros(_MORPH_SHAPE_YX, dtype=np.uint8)
+    if z_index == 0:
+        pixels[1:5, 1:5] = 100  # two separated transparent-resin squares...
+        pixels[1:5, 7:11] = 100
+        pixels[6:9, 1:6] = 255  # ...and an asymmetric white-resin block
+    elif z_index == 3:
+        pixels[1:5, 1:6] = 100  # squares grown toward each other, still apart
+        pixels[1:5, 7:11] = 100
+        pixels[6:9, 2:7] = 255
+    else:
+        pixels[1:5, 1:11] = 100  # merged into one bar (topology change)
+        pixels[6:9, 4:9] = 255
+    return pixels
+
+
+def write_morph_fixture(directory: Path) -> tuple[Path, MorphStackConfig]:
+    """Write a deterministic sparse key-slice set; return (slices_dir, config).
+
+    Three materials (one background), asymmetric shapes, one merge event
+    (two squares → one bar between z=3 and z=7); interior gaps are
+    interpolated by ``morph-stack``.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    ny, nx = _MORPH_SHAPE_YX
+    for z_index in _MORPH_KEY_INDICES:
+        pixels = _morph_key_pixels(z_index)
+        header = f"P5\n{nx} {ny}\n255\n".encode("ascii")
+        (directory / f"slice_{z_index:04d}.pgm").write_bytes(
+            header + pixels.tobytes()
+        )
+    config = MorphStackConfig(
+        voxel_size_xyz_m=(0.0001, 0.0002, 0.0003),
+        levels=_STACK_LEVELS,
+    )
+    return directory, config
+
+
+def write_pipeline_fixture(directory: Path) -> Path:
+    """Write a two-asset boolean-composition scenario; return the config path.
+
+    Both assets share the Phase 1 fixture family's axis-asymmetric pattern
+    and exact geometry; material names stay inside the pinned vdbmat builtin
+    optical mapping (``air``/``transparent-resin``/``white-resin``) so
+    ``vdbmat convert`` remains runnable on the composed output (the Phase 1
+    volume presets use non-builtin names and cannot be reused here). The
+    pipeline remaps the overlay's material onto a fresh id renamed
+    ``white-resin`` and composes with ``union``.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    base = build_material_label_volume(
+        material_id=_asymmetric_labels((3, 4, 5), 2),
+        voxel_size_xyz_m=(0.0001, 0.0002, 0.0004),
+        palette=_palette(("air", "transparent-resin")),
+        provenance=build_provenance(
+            generator=GENERATOR_NAME,
+            generator_version=GENERATOR_VERSION,
+            config=FixtureConfig(preset="pipeline-base"),
+        ),
+    )
+    write_asset(base, directory, "base")
+
+    overlay_labels = np.zeros(base.geometry.shape_zyx, dtype=np.uint16)
+    overlay_labels[1:3, 1:3, 1:4] = 1
+    overlay = build_material_label_volume(
+        material_id=overlay_labels,
+        voxel_size_xyz_m=base.geometry.voxel_size_xyz_m,
+        palette=_palette(("air", "transparent-resin")),
+        provenance=build_provenance(
+            generator=GENERATOR_NAME,
+            generator_version=GENERATOR_VERSION,
+            config=FixtureConfig(preset="pipeline-overlay"),
+        ),
+    )
+    write_asset(overlay, directory, "overlay")
+
+    payload = {
+        "inputs": [
+            {"id": "base", "manifest_path": "base.voxels.json"},
+            {"id": "overlay", "manifest_path": "overlay.voxels.json"},
+        ],
+        "steps": [
+            {
+                "op": "remap-materials",
+                "from": "overlay",
+                "mapping": {"1": 2},
+                "definitions": {"2": {"name": "white-resin"}},
+                "as": "overlay_white",
+            },
+            {
+                "op": "compose",
+                "base": "base",
+                "overlay": "overlay_white",
+                "mode": "union",
+                "as": "composed",
+            },
+        ],
+        "output": {"ref": "composed"},
+    }
+    config_path = directory / "pipeline.json"
+    config_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return config_path
 
 
 def build_fixture(preset: str, *, seed: int = 0) -> MaterialLabelVolume:
