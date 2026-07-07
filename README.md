@@ -7,12 +7,13 @@ validated against the pinned `vdbmat` version.
 
 ## Status
 
-Phase 0 (repository and contract foundation) and Phase 1 (first conversion workflows) complete:
-mesh voxelization (`voxelize-mesh`), image-stack conversion (`convert-image-stack`), previews and
-diagnostics (`preview-slices`, `material-counts`), plus the Phase 0 `inspect` / `validate` /
-`generate-fixture` CLI — all deterministic and contract-tested against the pinned `vdbmat`.
-Next: Phase 2 (image morphing and volume composition). Plans and reports live in
-`.devdocs/vdbmat-utils/` of the parent `pj-voxel3dprint` repository; decisions in `docs/adr/`.
+Phases 0–2 complete: mesh voxelization (`voxelize-mesh`), image-stack conversion
+(`convert-image-stack`), key-slice morphing (`morph-stack`), config-driven volume-op pipelines
+(`apply-pipeline`), previews and diagnostics (`preview-slices`, `material-counts`), plus the
+Phase 0 `inspect` / `validate` / `generate-fixture` CLI — all deterministic and contract-tested
+against the pinned `vdbmat`. Next: Phase 3 (procedural natural-material generators). Plans and
+reports live in `.devdocs/vdbmat-utils/` of the parent `pj-voxel3dprint` repository; decisions
+in `docs/adr/`.
 
 ## Installation
 
@@ -55,6 +56,27 @@ uv run vdbmat-utils convert-image-stack slices/ --config stack.json --out out/ -
 
 Every gray value must be declared in the config's `levels`; gaps in numbered sequences and
 shape mismatches are errors.
+
+### Morph workflow (`docs/morphing.md`)
+
+```bash
+# slices/: sparse labeled key slices; the filename number IS the z index
+# (slice_0000.pgm, slice_0008.pgm, ...); gaps are interpolated per-label
+# through signed distance fields — material ids are never averaged.
+uv run vdbmat-utils morph-stack slices/ --config morph.json --out out/ --name part
+```
+
+### Pipeline workflow (`docs/pipelines.md`)
+
+```bash
+# pipeline.json: inputs (existing .voxels.json assets) + a flat step list
+# (crop, pad, resample, orient, place, apply-mask, compose, remap-materials)
+uv run vdbmat-utils apply-pipeline --config pipeline.json --out out/ --name result
+uv run vdbmat-utils apply-pipeline --config pipeline.json --out out/ --name result --dry-run
+```
+
+Volume-operation semantics (geometry rules, boolean modes, conservation claims):
+`docs/volume-ops.md`.
 
 ### Validation and hand-off
 
