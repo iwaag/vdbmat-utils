@@ -21,6 +21,7 @@ from .crop_pad import crop, pad  # noqa: E402
 from .mask import apply_mask  # noqa: E402
 from .palette import merge_palettes  # noqa: E402
 from .remap import remap_materials  # noqa: E402
+from .resample import resample  # noqa: E402
 from .transform import orient, place  # noqa: E402
 
 __all__ = [
@@ -33,4 +34,5 @@ __all__ = [
     "pad",
     "place",
     "remap_materials",
+    "resample",
 ]

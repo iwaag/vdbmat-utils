@@ -23,6 +23,7 @@ from vdbmat.io import (
 
 from vdbmat_utils import __version__
 from vdbmat_utils.core import VdbmatUtilsError, require_compatible_volume_schema
+from vdbmat_utils.core.provenance import provenance_identity
 from vdbmat_utils.fixtures import FIXTURE_PRESETS, build_fixture
 from vdbmat_utils.image import (
     ImageStackConfig,
@@ -36,6 +37,8 @@ from vdbmat_utils.mesh import (
     voxelize_mesh,
 )
 from vdbmat_utils.mesh.voxelizer import SUPPORTED_MESH_UNITS
+from vdbmat_utils.morph import MorphStackConfig, morph_stack
+from vdbmat_utils.pipeline import PipelineConfig, run_pipeline, validate_pipeline
 from vdbmat_utils.preview import material_counts, slice_ascii, slice_pgm
 
 _EXPECTED_ERRORS = (
@@ -101,6 +104,47 @@ def build_parser() -> argparse.ArgumentParser:
     stack_parser.add_argument(
         "--format", choices=("pgm", "png"), default=None, dest="image_format",
         help="override config slice format",
+    )
+
+    morph_parser = commands.add_parser(
+        "morph-stack",
+        help="interpolate sparse labeled key slices into a vdbmat.voxels asset",
+    )
+    morph_parser.add_argument("slices_dir", type=Path, metavar="SLICES_DIR")
+    morph_parser.add_argument(
+        "--config", type=Path, required=True, metavar="CONFIG",
+        help="MorphStackConfig JSON (voxel_size_xyz_m, levels, z_count, ...)",
+    )
+    morph_parser.add_argument(
+        "--out", type=Path, required=True, metavar="DIR",
+        help="output directory for the manifest and payload",
+    )
+    morph_parser.add_argument("--name", required=True, metavar="NAME")
+    morph_parser.add_argument(
+        "--voxel-size", type=float, nargs=3, default=None,
+        metavar=("X", "Y", "Z"), help="override config voxel_size_xyz_m",
+    )
+    morph_parser.add_argument(
+        "--z-count", type=int, default=None, dest="z_count",
+        help="override config z_count (total output depth)",
+    )
+
+    pipeline_parser = commands.add_parser(
+        "apply-pipeline",
+        help="apply a configured op sequence to existing vdbmat.voxels assets",
+    )
+    pipeline_parser.add_argument(
+        "--config", type=Path, required=True, metavar="PIPELINE",
+        help="PipelineConfig JSON (inputs, steps, output)",
+    )
+    pipeline_parser.add_argument(
+        "--out", type=Path, required=True, metavar="DIR",
+        help="output directory for the manifest and payload",
+    )
+    pipeline_parser.add_argument("--name", required=True, metavar="NAME")
+    pipeline_parser.add_argument(
+        "--dry-run", action="store_true", dest="dry_run",
+        help="validate and print the resolved step plan without running",
     )
 
     mesh_parser = commands.add_parser(
@@ -236,6 +280,49 @@ def _cmd_convert_image_stack(
     return 0
 
 
+def _cmd_morph_stack(
+    slices_dir: Path,
+    config_path: Path,
+    out: Path,
+    name: str,
+    voxel_size: list[float] | None,
+    z_count: int | None,
+) -> int:
+    config = MorphStackConfig.from_json(config_path.read_text(encoding="utf-8"))
+    if voxel_size is not None:
+        config = dataclasses.replace(
+            config,
+            voxel_size_xyz_m=(voxel_size[0], voxel_size[1], voxel_size[2]),
+        )
+    if z_count is not None:
+        config = dataclasses.replace(config, z_count=z_count)
+    volume = morph_stack(slices_dir, config)
+    manifest = write_asset(
+        volume, out, name, identity=provenance_identity(volume.provenance)
+    )
+    print(f"wrote {manifest}")
+    _print_material_counts(volume)
+    return 0
+
+
+def _cmd_apply_pipeline(
+    config_path: Path, out: Path, name: str, *, dry_run: bool
+) -> int:
+    config = PipelineConfig.from_json(config_path.read_text(encoding="utf-8"))
+    if dry_run:
+        for step in validate_pipeline(config):
+            print(step.describe())
+        print(f"output: {config.output['ref']}")
+        return 0
+    volume = run_pipeline(config, base_dir=config_path.resolve().parent)
+    manifest = write_asset(
+        volume, out, name, identity=provenance_identity(volume.provenance)
+    )
+    print(f"wrote {manifest}")
+    _print_material_counts(volume)
+    return 0
+
+
 def _cmd_voxelize_mesh(
     mesh_path: Path,
     config_path: Path,
@@ -322,6 +409,22 @@ def main(argv: list[str] | None = None) -> int:
                 arguments.name,
                 arguments.voxel_size,
                 arguments.image_format,
+            )
+        if arguments.command == "morph-stack":
+            return _cmd_morph_stack(
+                arguments.slices_dir,
+                arguments.config,
+                arguments.out,
+                arguments.name,
+                arguments.voxel_size,
+                arguments.z_count,
+            )
+        if arguments.command == "apply-pipeline":
+            return _cmd_apply_pipeline(
+                arguments.config,
+                arguments.out,
+                arguments.name,
+                dry_run=arguments.dry_run,
             )
         if arguments.command == "voxelize-mesh":
             return _cmd_voxelize_mesh(

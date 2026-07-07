@@ -1,6 +1,7 @@
 """Unit tests for the morph-stack workflow (plan D4, Step 2.3)."""
 
 import itertools
+import json
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -245,3 +246,79 @@ def test_provenance_and_determinism(tmp_path: Path) -> None:
     assert first.provenance.generator == "vdbmat-utils.morph.stack"
     assert len(first.provenance.sources) == 2
     assert first.provenance.configuration_digest is not None
+
+
+def test_cli_morph_stack_with_overrides(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from vdbmat_utils.cli.main import main
+
+    slices = tmp_path / "slices"
+    slices.mkdir()
+    _write_pgm(slices / "s0.pgm", _square((4, 4), 0, 2, 0, 2))
+    _write_pgm(slices / "s2.pgm", _square((4, 4), 1, 3, 1, 3, gray=255))
+    config_path = tmp_path / "morph.json"
+    config_path.write_text(
+        _config(edge_policy="clamp").to_json(), encoding="utf-8"
+    )
+    out_dir = tmp_path / "out"
+    assert (
+        main(
+            [
+                "morph-stack",
+                str(slices),
+                "--config",
+                str(config_path),
+                "--out",
+                str(out_dir),
+                "--name",
+                "morphed",
+                "--voxel-size",
+                "0.002",
+                "0.002",
+                "0.002",
+                "--z-count",
+                "4",
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert "wrote" in output
+    assert "0 (air, background):" in output
+    manifest = out_dir / "morphed.voxels.json"
+    assert main(["validate", str(manifest)]) == 0
+    capsys.readouterr()
+    assert main(["inspect", str(manifest), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["shape_zyx"] == [4, 4, 4]
+    assert payload["voxel_size_xyz_m"] == [0.002, 0.002, 0.002]
+    assert payload["source_identity"] is not None
+
+
+def test_cli_morph_stack_error_returns_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from vdbmat_utils.cli.main import main
+
+    slices = tmp_path / "slices"
+    slices.mkdir()
+    _write_pgm(slices / "s1.pgm", _square((4, 4), 0, 2, 0, 2))
+    config_path = tmp_path / "morph.json"
+    config_path.write_text(_config().to_json(), encoding="utf-8")
+    assert (
+        main(
+            [
+                "morph-stack",
+                str(slices),
+                "--config",
+                str(config_path),
+                "--out",
+                str(tmp_path / "out"),
+                "--name",
+                "morphed",
+            ]
+        )
+        == 1
+    )
+    assert "first key slice is z=1" in capsys.readouterr().err
