@@ -10,9 +10,9 @@ from vdbmat_utils.cli.main import main
 from vdbmat_utils.preview import slice_ascii
 
 ROOT = Path(__file__).resolve().parents[2]
-MARBLE_CONFIG = ROOT / "examples/phase3/marble-like.formation.json"
-GRANITE_CONFIG = ROOT / "examples/phase3/granite-like.formation.json"
-SWEEP_CONFIG = ROOT / "examples/phase3/tiny-sweep.sweep.json"
+MARBLE_CONFIG = ROOT / "examples/formation_generation/marble-like.formation.json"
+GRANITE_CONFIG = ROOT / "examples/formation_generation/granite-like.formation.json"
+SWEEP_CONFIG = ROOT / "examples/formation_generation/tiny-sweep.sweep.json"
 
 PAYLOAD_GOLDENS = {
     "marble-like": "229bc9f7dae1da98f7164e7863abd4886e3df4f6a979eb92f3cf4cf5c4071032",

@@ -11,8 +11,8 @@ from vdbmat_utils.cli.main import main
 
 ROOT = Path(__file__).resolve().parents[2]
 REFERENCE_CONFIGS = (
-    ("marble-like", ROOT / "examples/phase3/marble-like.formation.json"),
-    ("granite-like", ROOT / "examples/phase3/granite-like.formation.json"),
+    ("marble-like", ROOT / "examples/formation_generation/marble-like.formation.json"),
+    ("granite-like", ROOT / "examples/formation_generation/granite-like.formation.json"),
 )
 
 

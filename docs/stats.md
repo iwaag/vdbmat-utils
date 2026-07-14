@@ -7,7 +7,7 @@ outputs.
 ```bash
 uv run vdbmat-utils formation-stats out/marble-like.voxels.json
 uv run vdbmat-utils formation-stats out/marble-like.voxels.json \
-  --constraints examples/phase3/marble-like.formation.json \
+  --constraints examples/formation_generation/marble-like.formation.json \
   --out out/marble-like.stats.json
 ```
 

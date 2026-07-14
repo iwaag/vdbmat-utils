@@ -82,11 +82,11 @@ Volume-operation semantics (geometry rules, boolean modes, conservation claims):
 
 ```bash
 uv run vdbmat-utils generate-formation \
-  --config examples/phase3/marble-like.formation.json \
+  --config examples/formation_generation/marble-like.formation.json \
   --out out/marble --name marble-like --strict
 uv run vdbmat-utils formation-stats out/marble/marble-like.voxels.json
 uv run vdbmat-utils sweep-formation \
-  --config examples/phase3/tiny-sweep.sweep.json \
+  --config examples/formation_generation/tiny-sweep.sweep.json \
   --out out/sweep --name tiny
 ```
 
