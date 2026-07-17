@@ -10,8 +10,10 @@ validated against the pinned `vdbmat` version.
 Phases 0–3 complete: mesh voxelization (`voxelize-mesh`), image-stack conversion
 (`convert-image-stack`), key-slice morphing (`morph-stack`), config-driven volume-op pipelines
 (`apply-pipeline`), procedural formations (`generate-formation`, `formation-stats`,
-`sweep-formation`), previews and diagnostics (`preview-slices`, `material-counts`), plus the
-Phase 0 `inspect` / `validate` / `generate-fixture` CLI. All are deterministic and
+`sweep-formation`), previews and diagnostics (`preview-slices`, `material-counts`), a
+transparent-block + opaque cube/sphere inclusion-array generator
+(`generate-primitive-array`, `docs/primitive-arrays.md`), plus the Phase 0
+`inspect` / `validate` / `generate-fixture` CLI. All are deterministic and
 contract-tested against the pinned `vdbmat`. Plans and reports live in
 `.devdocs/vdbmat-utils/` of the parent `pj-voxel3dprint` repository; decisions in `docs/adr/`.
 
@@ -94,6 +96,19 @@ Formation configs compose host, strata, veins, grains, pores, and fractures as
 discrete material labels. Non-built-in material names emit a companion
 `vdbmat.optical-mapping` document; see `docs/optical-mappings.md`. Metrics and
 constraint forms are in `docs/stats.md`.
+
+### Primitive-array workflow (`docs/primitive-arrays.md`)
+
+```bash
+# config: voxel_size_xyz_m, primitive (cube|sphere), counts_xyz, primitive_size_m,
+# gap_m, margin_m (both required, no default), base/inclusion material names
+uv run vdbmat-utils generate-primitive-array --config primarray.json --out out/ --name demo
+```
+
+Builds a transparent base block containing an A × B × C grid of opaque cube or sphere
+inclusions from one flat config with no input files; grid shape is always derived, never
+given directly. An optical test pattern for designlab's pipeline, not a print-process
+simulation.
 
 ### Validation and hand-off
 
