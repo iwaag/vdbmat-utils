@@ -662,7 +662,12 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.11" },
 ]
+gui-capture = [{ name = "playwright", specifier = ">=1.55" }]
 mitsuba = [{ name = "mitsuba", specifier = ">=3.6" }]
+mitsuba-viewer = [
+    { name = "mitsuba", specifier = ">=3.6" },
+    { name = "viser", specifier = ">=0.2" },
+]
 openvdb = []
 
 [[package]]
