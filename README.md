@@ -14,7 +14,10 @@ Phases 0–3 complete: mesh voxelization (`voxelize-mesh`), image-stack conversi
 transparent-block + opaque cube/sphere inclusion-array generator
 (`generate-primitive-array`, `docs/primitive-arrays.md`), plus the Phase 0
 `inspect` / `validate` / `generate-fixture` CLI. All are deterministic and
-contract-tested against the pinned `vdbmat`. Plans and reports live in
+contract-tested against the pinned `vdbmat`. `examples/designlab/` is a
+browser GUI (`docs/designlab.md`) that fills in a generator config form
+and runs generate → optical mapping → publish as one job; it currently
+wires up `generate-primitive-array` only. Plans and reports live in
 `.devdocs/vdbmat-utils/` of the parent `pj-voxel3dprint` repository; decisions in `docs/adr/`.
 
 ## Installation
@@ -109,6 +112,22 @@ Builds a transparent base block containing an A × B × C grid of opaque cube or
 inclusions from one flat config with no input files; grid shape is always derived, never
 given directly. An optical test pattern for designlab's pipeline, not a print-process
 simulation.
+
+### designlab: a browser GUI for building inputs (`docs/designlab.md`)
+
+```bash
+uv run --group designlab python examples/designlab/designlab_app.py -- \
+  --config-root <CONFIG_ROOT> --output-root <OUTPUT_ROOT> --port 8081
+# then open http://127.0.0.1:8081
+```
+
+A viser GUI that fills in a generator config form, saves/loads it, and runs
+generate → optical mapping → publish as one background job, so a candidate
+input model can be tried without hand-writing config JSON or chaining CLI
+calls. Point `--output-root` at an existing `mitsuba_stage_viewer.py`
+`--input-root` to see published bundles in its Input catalog. Phase 2
+registers one method, `generate-primitive-array`; see `docs/designlab.md`
+for the registry interface used to add the next one.
 
 ### Validation and hand-off
 
