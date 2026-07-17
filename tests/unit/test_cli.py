@@ -215,6 +215,61 @@ def test_voxelize_mesh_bad_source_unit_returns_1(
     assert "source_unit" in capsys.readouterr().err
 
 
+def _primitive_array_config_json() -> str:
+    from vdbmat_utils.primitives import PrimitiveArrayConfig
+
+    config = PrimitiveArrayConfig(
+        voxel_size_xyz_m=(1e-4, 1e-4, 1e-4),
+        primitive="cube",
+        counts_xyz=(3, 2, 1),
+        primitive_size_m=4e-4,
+        gap_m=2e-4,
+        margin_m=1e-4,
+    )
+    return config.to_json()
+
+
+def test_generate_primitive_array(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(_primitive_array_config_json(), encoding="utf-8")
+    out_dir = tmp_path / "out"
+    assert main(
+        [
+            "generate-primitive-array",
+            "--config", str(config_path),
+            "--out", str(out_dir),
+            "--name", "demo",
+        ]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "demo.voxels.json" in output
+    assert "(transparent-resin, material):" in output
+    assert "(black-opaque-resin, material):" in output
+    capsys.readouterr()
+    assert main(["validate", str(out_dir / "demo.voxels.json")]) == 0
+
+
+def test_generate_primitive_array_bad_config_returns_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        _primitive_array_config_json().replace('"cube"', '"cylinder"'),
+        encoding="utf-8",
+    )
+    assert main(
+        [
+            "generate-primitive-array",
+            "--config", str(config_path),
+            "--out", str(tmp_path / "out"),
+            "--name", "demo",
+        ]
+    ) == 1
+    assert "primitive" in capsys.readouterr().err
+
+
 def test_fixture_seed_changes_nothing_for_seedless_presets(tmp_path: Path) -> None:
     a = tmp_path / "a"
     b = tmp_path / "b"

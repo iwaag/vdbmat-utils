@@ -40,6 +40,7 @@ from vdbmat_utils.mesh.voxelizer import SUPPORTED_MESH_UNITS
 from vdbmat_utils.morph import MorphStackConfig, morph_stack
 from vdbmat_utils.pipeline import PipelineConfig, run_pipeline, validate_pipeline
 from vdbmat_utils.preview import material_counts, slice_ascii, slice_pgm
+from vdbmat_utils.primitives import PrimitiveArrayConfig, generate_primitive_array
 from vdbmat_utils.procgen.models import FormationConfig, write_formation
 from vdbmat_utils.procgen.stats import (
     ConstraintResult,
@@ -190,6 +191,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--padding", type=int, default=None, dest="padding_cells",
         help="override config padding_cells",
     )
+
+    primitive_array_parser = commands.add_parser(
+        "generate-primitive-array",
+        help="generate a transparent block with a repeated cube/sphere inclusion array",
+    )
+    primitive_array_parser.add_argument(
+        "--config", type=Path, required=True, metavar="CONFIG",
+        help="PrimitiveArrayConfig JSON (voxel_size_xyz_m, primitive, counts_xyz, ...)",
+    )
+    primitive_array_parser.add_argument(
+        "--out", type=Path, required=True, metavar="DIR",
+        help="output directory for the manifest and payload",
+    )
+    primitive_array_parser.add_argument("--name", required=True, metavar="NAME")
 
     formation_parser = commands.add_parser(
         "generate-formation",
@@ -422,6 +437,15 @@ def _cmd_voxelize_mesh(
     return 0
 
 
+def _cmd_generate_primitive_array(config_path: Path, out: Path, name: str) -> int:
+    config = PrimitiveArrayConfig.from_json(config_path.read_text(encoding="utf-8"))
+    volume = generate_primitive_array(config)
+    manifest = write_asset(volume, out, name)
+    print(f"wrote {manifest}")
+    _print_material_counts(volume)
+    return 0
+
+
 def _cmd_preview_slices(
     manifest: Path, axis: str, index: int | None, out: Path | None
 ) -> int:
@@ -548,6 +572,10 @@ def main(argv: list[str] | None = None) -> int:
                 arguments.material_id,
                 arguments.material_name,
                 arguments.padding_cells,
+            )
+        if arguments.command == "generate-primitive-array":
+            return _cmd_generate_primitive_array(
+                arguments.config, arguments.out, arguments.name
             )
         if arguments.command == "generate-formation":
             return _cmd_generate_formation(
