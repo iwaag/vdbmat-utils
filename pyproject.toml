@@ -29,6 +29,9 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.11",
 ]
+designlab = [
+    "viser>=0.2",
+]
 
 [tool.uv.sources]
 vdbmat = { path = "../vdbmat", editable = true }
