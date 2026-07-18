@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from vdbmat_utils.image import ImageStackError
-from vdbmat_utils.image.png import read_indexed_png, write_indexed_png
+from vdbmat_utils.image.png import read_indexed_png, read_png_rgb, write_indexed_png
 
 
 def test_write_then_read_round_trips_indices(tmp_path: Path) -> None:
@@ -63,3 +63,55 @@ def test_read_rejects_non_indexed_png(tmp_path: Path) -> None:
     Image.fromarray(np.zeros((2, 2), dtype=np.uint8), mode="L").save(path)
     with pytest.raises(ImageStackError, match="indexed-palette"):
         read_indexed_png(path)
+
+
+def test_read_png_rgb_round_trips_indexed_png(tmp_path: Path) -> None:
+    indices = np.array([[0, 1, 2], [2, 1, 0]], dtype=np.uint8)
+    palette = [(10, 20, 30), (255, 0, 0), (0, 255, 0)]
+    path = tmp_path / "slice_0000.png"
+    write_indexed_png(path, indices, palette)
+
+    rgb = read_png_rgb(path)
+    expected = np.array(
+        [
+            [palette[0], palette[1], palette[2]],
+            [palette[2], palette[1], palette[0]],
+        ],
+        dtype=np.uint8,
+    )
+    np.testing.assert_array_equal(rgb, expected)
+
+
+def test_read_png_rgb_reads_mode_rgb(tmp_path: Path) -> None:
+    Image = pytest.importorskip("PIL.Image")
+    pixels = np.array(
+        [[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]], dtype=np.uint8
+    )
+    path = tmp_path / "rgb.png"
+    Image.fromarray(pixels, mode="RGB").save(path)
+    np.testing.assert_array_equal(read_png_rgb(path), pixels)
+
+
+def test_read_png_rgb_rejects_grayscale(tmp_path: Path) -> None:
+    Image = pytest.importorskip("PIL.Image")
+    path = tmp_path / "gray.png"
+    Image.fromarray(np.zeros((2, 2), dtype=np.uint8), mode="L").save(path)
+    with pytest.raises(ImageStackError, match="'RGB'"):
+        read_png_rgb(path)
+
+
+def test_read_png_rgb_rejects_rgba(tmp_path: Path) -> None:
+    Image = pytest.importorskip("PIL.Image")
+    pixels = np.zeros((2, 2, 4), dtype=np.uint8)
+    path = tmp_path / "rgba.png"
+    Image.fromarray(pixels, mode="RGBA").save(path)
+    with pytest.raises(ImageStackError, match="'RGB'"):
+        read_png_rgb(path)
+
+
+def test_read_png_rgb_requires_image_extra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "PIL", None)
+    with pytest.raises(ImageStackError, match="image' extra"):
+        read_png_rgb(tmp_path / "slice_0000.png")

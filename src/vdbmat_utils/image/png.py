@@ -46,6 +46,45 @@ def read_png(path: Path) -> npt.NDArray[np.uint8]:
         )
 
 
+def read_png_rgb(path: Path) -> npt.NDArray[np.uint8]:
+    """Read a color-label PNG slice as an ``(H, W, 3)`` uint8 RGB array.
+
+    Accepts mode "P" (indexed palette, expanded via the palette table
+    directly — not Pillow's ``convert("RGB")``, whose transparency/palette
+    handling has varied across versions) and mode "RGB". Other modes
+    (grayscale, RGBA, 16-bit, etc.) are rejected explicitly rather than
+    silently converted, since a dropped alpha channel or widened bit depth
+    would silently change the declared color set.
+    """
+    try:
+        from PIL import Image
+    except ImportError as error:
+        raise ImageStackError(
+            "PNG input requires the 'image' extra: "
+            "pip install 'vdbmat-utils[image]'"
+        ) from error
+    try:
+        image: Any = Image.open(path)
+        image.load()
+    except OSError as error:
+        raise ImageStackError(f"{path.name}: cannot read PNG: {error}") from error
+    with image:
+        if image.mode == "RGB":
+            return np.asarray(image, dtype=np.uint8)
+        if image.mode == "P":
+            indices = np.asarray(image, dtype=np.uint8)
+            raw_palette = list(image.getpalette() or [])
+            raw_palette.extend([0] * (_PALETTE_ENTRIES * 3 - len(raw_palette)))
+            palette_table = np.asarray(raw_palette, dtype=np.uint8).reshape(
+                _PALETTE_ENTRIES, 3
+            )
+            return palette_table[indices]
+        raise ImageStackError(
+            f"{path.name}: only indexed-palette ('P') or 'RGB' PNG is "
+            f"supported, got mode {image.mode!r}"
+        )
+
+
 def write_indexed_png(
     path: Path,
     indices: npt.NDArray[np.uint8],
