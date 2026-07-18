@@ -12,7 +12,9 @@ Phases 0–3 complete: mesh voxelization (`voxelize-mesh`), image-stack conversi
 (`apply-pipeline`), procedural formations (`generate-formation`, `formation-stats`,
 `sweep-formation`), previews and diagnostics (`preview-slices`, `material-counts`), a
 transparent-block + opaque cube/sphere inclusion-array generator
-(`generate-primitive-array`, `docs/primitive-arrays.md`), plus the Phase 0
+(`generate-primitive-array`, `docs/primitive-arrays.md`), a GrabCAD Print
+voxel-printing PNG-slice exporter (`export-print-slices`,
+`docs/print-slices.md`), plus the Phase 0
 `inspect` / `validate` / `generate-fixture` CLI. All are deterministic and
 contract-tested against the pinned `vdbmat`. `examples/designlab/` is a
 browser GUI (`docs/designlab.md`) that fills in a generator config form
@@ -112,6 +114,23 @@ Builds a transparent base block containing an A × B × C grid of opaque cube or
 inclusions from one flat config with no input files; grid shape is always derived, never
 given directly. An optical test pattern for designlab's pipeline, not a print-process
 simulation.
+
+### GrabCAD Print slice export (`docs/print-slices.md`)
+
+```bash
+# config: dpi_x, dpi_y, layer_thickness_m, max_materials, palette
+# (material_id string -> RGB), background_rgb, axis mapping, flips
+uv run vdbmat-utils export-print-slices model.voxels.json \
+  --config printslices.json --out out/ --name model
+```
+
+Converts a material-label voxel asset into an indexed-palette PNG slice stack
+(`<out>/<name>/slice_0000.png` …) plus a sidecar manifest, on a printer-pitch
+grid derived by nearest-neighbour sampling in physical space — never
+interpolated or averaged. Consumed by GrabCAD Print's voxel-printing PNG
+method; a round-trip contract with `convert-image-stack` and real-software
+GCVF acceptance are out of scope for this phase (see
+`.devdocs/vision/printer_export/roadmap.md`).
 
 ### designlab: a browser GUI for building inputs (`docs/designlab.md`)
 

@@ -270,6 +270,93 @@ def test_generate_primitive_array_bad_config_returns_1(
     assert "primitive" in capsys.readouterr().err
 
 
+def _print_slices_config_json(**overrides: object) -> str:
+    from vdbmat_utils.printer import PrintSlicesConfig
+
+    kwargs: dict[str, object] = dict(
+        layer_thickness_m=100e-6,
+        palette={"1": [255, 0, 0], "3": [0, 255, 0]},
+        min_slices=1,
+    )
+    kwargs.update(overrides)
+    return PrintSlicesConfig(**kwargs).to_json()
+
+
+def _generate_primitive_manifest(tmp_path: Path) -> Path:
+    config_path = tmp_path / "primitive.config.json"
+    config_path.write_text(_primitive_array_config_json(), encoding="utf-8")
+    out_dir = tmp_path / "input"
+    assert main(
+        [
+            "generate-primitive-array",
+            "--config", str(config_path),
+            "--out", str(out_dir),
+            "--name", "demo",
+        ]
+    ) == 0
+    return out_dir / "demo.voxels.json"
+
+
+def test_export_print_slices(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = _generate_primitive_manifest(tmp_path)
+    config_path = tmp_path / "print.config.json"
+    config_path.write_text(_print_slices_config_json(), encoding="utf-8")
+    capsys.readouterr()
+    out_dir = tmp_path / "out"
+    assert main(
+        [
+            "export-print-slices",
+            str(manifest),
+            "--config", str(config_path),
+            "--out", str(out_dir),
+            "--name", "demo",
+        ]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "demo.printslices.json" in output
+    assert "slices:" in output
+    assert (out_dir / "demo" / "demo.printslices.json").exists()
+
+
+def test_export_print_slices_bad_config_returns_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = _generate_primitive_manifest(tmp_path)
+    config_path = tmp_path / "print.config.json"
+    config_path.write_text(
+        _print_slices_config_json().replace('"1"', '"7"'), encoding="utf-8"
+    )
+    assert main(
+        [
+            "export-print-slices",
+            str(manifest),
+            "--config", str(config_path),
+            "--out", str(tmp_path / "out"),
+            "--name", "demo",
+        ]
+    ) == 1
+    assert "palette" in capsys.readouterr().err
+
+
+def test_export_print_slices_missing_input_returns_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "print.config.json"
+    config_path.write_text(_print_slices_config_json(), encoding="utf-8")
+    assert main(
+        [
+            "export-print-slices",
+            str(tmp_path / "missing.voxels.json"),
+            "--config", str(config_path),
+            "--out", str(tmp_path / "out"),
+            "--name", "demo",
+        ]
+    ) == 1
+    assert capsys.readouterr().err
+
+
 def test_fixture_seed_changes_nothing_for_seedless_presets(tmp_path: Path) -> None:
     a = tmp_path / "a"
     b = tmp_path / "b"

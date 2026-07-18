@@ -41,6 +41,7 @@ from vdbmat_utils.morph import MorphStackConfig, morph_stack
 from vdbmat_utils.pipeline import PipelineConfig, run_pipeline, validate_pipeline
 from vdbmat_utils.preview import material_counts, slice_ascii, slice_pgm
 from vdbmat_utils.primitives import PrimitiveArrayConfig, generate_primitive_array
+from vdbmat_utils.printer import PrintSlicesConfig, export_print_slices
 from vdbmat_utils.procgen.models import FormationConfig, write_formation
 from vdbmat_utils.procgen.stats import (
     ConstraintResult,
@@ -205,6 +206,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="output directory for the manifest and payload",
     )
     primitive_array_parser.add_argument("--name", required=True, metavar="NAME")
+
+    print_slices_parser = commands.add_parser(
+        "export-print-slices",
+        help="export a material-label asset as GrabCAD PNG-method slices",
+    )
+    print_slices_parser.add_argument("manifest", type=Path, metavar="MANIFEST")
+    print_slices_parser.add_argument(
+        "--config", type=Path, required=True, metavar="CONFIG",
+        help="PrintSlicesConfig JSON (printer profile, palette, ...)",
+    )
+    print_slices_parser.add_argument(
+        "--out", type=Path, required=True, metavar="DIR",
+        help="output directory; slices are written under DIR/NAME/",
+    )
+    print_slices_parser.add_argument("--name", required=True, metavar="NAME")
 
     formation_parser = commands.add_parser(
         "generate-formation",
@@ -446,6 +462,20 @@ def _cmd_generate_primitive_array(config_path: Path, out: Path, name: str) -> in
     return 0
 
 
+def _cmd_export_print_slices(
+    manifest: Path, config_path: Path, out: Path, name: str
+) -> int:
+    config = PrintSlicesConfig.from_json(config_path.read_text(encoding="utf-8"))
+    result = export_print_slices(manifest, config, out, name)
+    print(f"wrote {result.manifest_path}")
+    print(f"slices: {result.n_slices}  pixels: {result.width}x{result.height}")
+    x_mm, y_mm, z_mm = result.physical_mm
+    print(f"physical size (mm): x={x_mm:.4f} y={y_mm:.4f} z={z_mm:.4f}")
+    for material_id, count in sorted(result.material_pixel_counts.items()):
+        print(f"  material {material_id}: {count} px")
+    return 0
+
+
 def _cmd_preview_slices(
     manifest: Path, axis: str, index: int | None, out: Path | None
 ) -> int:
@@ -576,6 +606,10 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "generate-primitive-array":
             return _cmd_generate_primitive_array(
                 arguments.config, arguments.out, arguments.name
+            )
+        if arguments.command == "export-print-slices":
+            return _cmd_export_print_slices(
+                arguments.manifest, arguments.config, arguments.out, arguments.name
             )
         if arguments.command == "generate-formation":
             return _cmd_generate_formation(
