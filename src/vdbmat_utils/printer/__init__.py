@@ -19,6 +19,7 @@ class PrintSlicesError(VdbmatUtilsError):
 
 
 from .exporter import ExportResult, export_print_slices  # noqa: E402
+from .roundtrip import image_stack_config_from_print_manifest  # noqa: E402
 from .types import PrintSlicesConfig  # noqa: E402
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "PrintSlicesConfig",
     "PrintSlicesError",
     "export_print_slices",
+    "image_stack_config_from_print_manifest",
 ]
