@@ -251,3 +251,129 @@ def test_config_digest_stable_and_seed_reserved(tmp_path: Path) -> None:
     assert a.provenance.configuration_digest == b.provenance.configuration_digest
     assert a.provenance.configuration_digest is not None
     assert _config().seed == 0
+
+
+# --- rgb levels (color-label stack input) --------------------------------
+
+RGB_LEVELS: tuple[Mapping[str, object], ...] = (
+    {"rgb": [0, 0, 0], "material_id": 0, "name": "air", "role": "background"},
+    {"rgb": [255, 0, 0], "material_id": 1, "name": "resin_red", "role": "material"},
+    {"rgb": [0, 255, 0], "material_id": 2, "name": "resin_green", "role": "material"},
+)
+
+
+def _rgb_config(**overrides: object) -> ImageStackConfig:
+    fields: dict[str, object] = {
+        "voxel_size_xyz_m": (0.001, 0.002, 0.003),
+        "levels": RGB_LEVELS,
+        "format": "png",
+    }
+    fields.update(overrides)
+    return ImageStackConfig(**fields)  # type: ignore[arg-type]
+
+
+_GRAY_TO_RGB = {0: (0, 0, 0), 128: (255, 0, 0), 255: (0, 255, 0)}
+
+
+def _write_color_slice(path: Path, gray_pixels: npt.NDArray[np.uint8]) -> None:
+    Image = pytest.importorskip("PIL.Image")
+    rgb = np.zeros((*gray_pixels.shape, 3), dtype=np.uint8)
+    for gray, color in _GRAY_TO_RGB.items():
+        rgb[gray_pixels == gray] = color
+    Image.fromarray(rgb, mode="RGB").save(path)
+
+
+def _write_color_stack(directory: Path) -> Path:
+    directory.mkdir(exist_ok=True)
+    _write_color_slice(directory / "slice_0000.png", _SLICE_0)
+    _write_color_slice(directory / "slice_0001.png", _SLICE_1)
+    return directory
+
+
+def test_rgb_levels_match_equivalent_gray_stack(tmp_path: Path) -> None:
+    gray_volume = convert_image_stack(_write_stack(tmp_path / "gray"), _config())
+    rgb_volume = convert_image_stack(
+        _write_color_stack(tmp_path / "rgb"), _rgb_config()
+    )
+    np.testing.assert_array_equal(rgb_volume.material_id, gray_volume.material_id)
+
+
+def test_rgb_levels_reject_indexed_png_round_trip(tmp_path: Path) -> None:
+    from vdbmat_utils.image.png import write_indexed_png
+
+    directory = tmp_path / "indexed"
+    directory.mkdir()
+    palette = [(0, 0, 0), (255, 0, 0), (0, 255, 0)]
+    indices = np.array([[0, 1], [2, 0]], dtype=np.uint8)
+    write_indexed_png(directory / "slice_0000.png", indices, palette)
+    volume = convert_image_stack(directory, _rgb_config())
+    expected = np.array([[[0, 1], [2, 0]]], dtype=np.uint16)
+    np.testing.assert_array_equal(volume.material_id, expected)
+
+
+def test_rgb_and_gray_entries_cannot_mix(tmp_path: Path) -> None:
+    levels = (*RGB_LEVELS[:2], LEVELS[2])
+    directory = _write_color_stack(tmp_path / "rgb")
+    with pytest.raises(ImageStackError, match="must not mix"):
+        convert_image_stack(directory, _rgb_config(levels=levels))
+
+
+def test_level_entry_cannot_have_both_gray_and_rgb(tmp_path: Path) -> None:
+    levels = (
+        {
+            "gray": 0,
+            "rgb": [0, 0, 0],
+            "material_id": 0,
+            "name": "air",
+            "role": "background",
+        },
+    )
+    directory = _write_color_stack(tmp_path / "rgb")
+    with pytest.raises(ImageStackError, match="must not have both"):
+        convert_image_stack(directory, _rgb_config(levels=levels))
+
+
+def test_level_entry_requires_gray_or_rgb(tmp_path: Path) -> None:
+    levels = ({"material_id": 0, "name": "air", "role": "background"},)
+    directory = _write_color_stack(tmp_path / "rgb")
+    with pytest.raises(ImageStackError, match="exactly one of 'gray' or 'rgb'"):
+        convert_image_stack(directory, _rgb_config(levels=levels))
+
+
+def test_duplicate_rgb_values(tmp_path: Path) -> None:
+    levels = (
+        *RGB_LEVELS,
+        {"rgb": [0, 255, 0], "material_id": 3, "name": "extra", "role": "material"},
+    )
+    directory = _write_color_stack(tmp_path / "rgb")
+    with pytest.raises(ImageStackError, match=r"duplicate rgb level \[0, 255, 0\]"):
+        convert_image_stack(directory, _rgb_config(levels=levels))
+
+
+def test_rgb_value_out_of_range(tmp_path: Path) -> None:
+    levels = (
+        {"rgb": [0, 0, 0], "material_id": 0, "name": "air", "role": "background"},
+        {"rgb": [256, 0, 0], "material_id": 1, "name": "bad", "role": "material"},
+    )
+    directory = _write_color_stack(tmp_path / "rgb")
+    with pytest.raises(ImageStackError, match=r"rgb\.r: must be an integer"):
+        convert_image_stack(directory, _rgb_config(levels=levels))
+
+
+def test_rgb_levels_reject_pgm_format(tmp_path: Path) -> None:
+    directory = _write_stack(tmp_path / "stack")
+    with pytest.raises(ImageStackError, match=r"require config\.format 'png'"):
+        convert_image_stack(directory, _rgb_config(format="pgm"))
+
+
+def test_undeclared_rgb_names_value_and_pixel(tmp_path: Path) -> None:
+    directory = _write_color_stack(tmp_path / "rgb")
+    Image = pytest.importorskip("PIL.Image")
+    rgb = np.array(Image.open(directory / "slice_0001.png").convert("RGB"))
+    rgb[2, 3] = (1, 2, 3)
+    Image.fromarray(rgb, mode="RGB").save(directory / "slice_0001.png")
+    with pytest.raises(
+        ImageStackError,
+        match=r"slice_0001\.png row 2, column 3 \(RGB \[1, 2, 3\]\)",
+    ):
+        convert_image_stack(directory, _rgb_config())

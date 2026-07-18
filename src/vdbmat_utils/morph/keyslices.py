@@ -57,9 +57,14 @@ def load_key_slices(
     file and value (same behavior as ``convert-image-stack``).
     """
     try:
-        gray_to_id, palette = _parse_levels(levels)
+        mode, gray_to_id, palette = _parse_levels(levels)
     except ImageStackError as error:
         raise MorphError(str(error)) from error
+    if mode == "rgb":
+        raise MorphError(
+            "config.levels: 'rgb' entries are not supported by morph-stack; "
+            "use 'gray' levels"
+        )
 
     paths = sorted(slices_dir.glob(f"*.{image_format}"))
     if not paths:

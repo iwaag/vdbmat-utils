@@ -3,7 +3,7 @@
 import dataclasses
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import numpy as np
@@ -29,8 +29,13 @@ GENERATOR = "vdbmat-utils.image.stack"
 GENERATOR_VERSION = "0.1.0"
 
 _FORMATS = ("pgm", "png")
-_LEVEL_FIELDS = {"gray", "material_id", "name", "role"}
+_LEVEL_FIELDS = {"gray", "rgb", "material_id", "name", "role"}
 _TRAILING_INT = re.compile(r"(\d+)\D*$")
+
+
+def _pack_rgb(rgb: tuple[int, int, int]) -> int:
+    r, g, b = rgb
+    return (r << 16) | (g << 8) | b
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
@@ -48,13 +53,51 @@ class ImageStackConfig(GeneratorConfig):
     format: str = "pgm"
 
 
+def _parse_rgb_value(field: str, value: object) -> tuple[int, int, int]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ImageStackError(f"{field}: must be an array of 3 integers")
+    channels = []
+    for name, channel in zip(("r", "g", "b"), value, strict=True):
+        valid = (
+            isinstance(channel, int)
+            and not isinstance(channel, bool)
+            and 0 <= channel <= 255
+        )
+        if not valid:
+            raise ImageStackError(f"{field}.{name}: must be an integer in [0, 255]")
+        channels.append(channel)
+    return (channels[0], channels[1], channels[2])
+
+
 def _parse_levels(
     levels: tuple[Mapping[str, object], ...],
-) -> tuple[dict[int, int], MaterialPalette]:
-    """Validate ``levels`` into a gray→material-id map and a palette."""
+) -> tuple[str, dict[int, int], MaterialPalette]:
+    """Validate ``levels`` into a mode, a key→material-id map, and a palette.
+
+    ``mode`` is ``"gray"`` or ``"rgb"``; the key map is keyed by the gray
+    value (0..255) or the packed RGB value (``r<<16 | g<<8 | b``)
+    respectively. A config's entries must be all-gray or all-rgb — a stack
+    is either grayscale or color, and mixing would make the reader's mode
+    selection pixel-dependent.
+    """
     if not levels:
         raise ImageStackError("config.levels: must be a non-empty array")
-    gray_to_id: dict[int, int] = {}
+
+    modes = {
+        "gray" if "gray" in entry else "rgb" if "rgb" in entry else None
+        for entry in levels
+    }
+    if None in modes:
+        raise ImageStackError(
+            "config.levels: each entry must have exactly one of 'gray' or 'rgb'"
+        )
+    if len(modes) > 1:
+        raise ImageStackError(
+            "config.levels: entries must not mix 'gray' and 'rgb' within one config"
+        )
+    mode = modes.pop()
+
+    key_to_id: dict[int, int] = {}
     definitions: list[MaterialDefinition] = []
     for index, entry in enumerate(levels):
         field = f"config.levels[{index}]"
@@ -63,11 +106,26 @@ def _parse_levels(
         unknown = sorted(set(entry) - _LEVEL_FIELDS)
         if unknown:
             raise ImageStackError(f"{field}: unknown fields: {unknown}")
-        gray = entry.get("gray")
-        if not isinstance(gray, int) or isinstance(gray, bool) or not 0 <= gray <= 255:
-            raise ImageStackError(f"{field}.gray: must be an integer in [0, 255]")
-        if gray in gray_to_id:
-            raise ImageStackError(f"{field}.gray: duplicate gray level {gray}")
+        if mode == "gray":
+            if "rgb" in entry:
+                raise ImageStackError(f"{field}: must not have both 'gray' and 'rgb'")
+            gray = entry.get("gray")
+            if (
+                not isinstance(gray, int)
+                or isinstance(gray, bool)
+                or not 0 <= gray <= 255
+            ):
+                raise ImageStackError(f"{field}.gray: must be an integer in [0, 255]")
+            if gray in key_to_id:
+                raise ImageStackError(f"{field}.gray: duplicate gray level {gray}")
+            key = gray
+        else:
+            if "gray" in entry:
+                raise ImageStackError(f"{field}: must not have both 'gray' and 'rgb'")
+            rgb = _parse_rgb_value(f"{field}.rgb", entry.get("rgb"))
+            key = _pack_rgb(rgb)
+            if key in key_to_id:
+                raise ImageStackError(f"{field}.rgb: duplicate rgb level {list(rgb)}")
         material_id = entry.get("material_id")
         name = entry.get("name")
         role = entry.get("role")
@@ -85,13 +143,13 @@ def _parse_levels(
             )
         except (TypeError, ValueError) as error:
             raise ImageStackError(f"{field}: {error}") from error
-        gray_to_id[gray] = definition.material_id
+        key_to_id[key] = definition.material_id
         definitions.append(definition)
     try:
         palette = MaterialPalette.from_sequence(definitions)
     except (TypeError, ValueError) as error:
         raise ImageStackError(f"config.levels: {error}") from error
-    return gray_to_id, palette
+    return mode, key_to_id, palette
 
 
 def _check_sequence_gaps(paths: list[Path]) -> None:
@@ -114,17 +172,29 @@ def _check_sequence_gaps(paths: list[Path]) -> None:
 
 
 def _first_undeclared_pixel(
-    layers: list[npt.NDArray[np.uint8]],
+    layers: list[npt.NDArray[np.int64]],
     paths: list[Path],
     declared: npt.NDArray[np.int64],
+    describe_value: Callable[[int], str],
 ) -> str:
     for layer, path in zip(layers, paths, strict=True):
         undeclared_mask = ~np.isin(layer, declared)
         if undeclared_mask.any():
             row, col = (int(v) for v in np.argwhere(undeclared_mask)[0])
             value = int(layer[row, col])
-            return f"first at {path.name} row {row}, column {col} (gray {value})"
+            return (
+                f"first at {path.name} row {row}, column {col} "
+                f"({describe_value(value)})"
+            )
     raise AssertionError("no undeclared pixel found")  # pragma: no cover
+
+
+def _describe_gray(value: int) -> str:
+    return f"gray {value}"
+
+
+def _describe_rgb(value: int) -> str:
+    return f"RGB {[(value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF]}"
 
 
 def _read_slice(path: Path, image_format: str) -> npt.NDArray[np.uint8]:
@@ -145,6 +215,28 @@ def _read_slice(path: Path, image_format: str) -> npt.NDArray[np.uint8]:
     )
 
 
+def _read_color_slice(path: Path) -> npt.NDArray[np.int64]:
+    try:
+        from vdbmat_utils.image.png import read_png_rgb
+    except ImportError as error:
+        raise ImageStackError(
+            "PNG input requires the 'image' extra: pip install 'vdbmat-utils[image]'"
+        ) from error
+    rgb = read_png_rgb(path).astype(np.int64)
+    return (rgb[..., 0] << 16) | (rgb[..., 1] << 8) | rgb[..., 2]
+
+
+def _apply_lookup(
+    stack: npt.NDArray[np.int64], key_to_id: dict[int, int]
+) -> npt.NDArray[np.uint16]:
+    sorted_keys = np.asarray(sorted(key_to_id), dtype=np.int64)
+    sorted_values = np.asarray(
+        [key_to_id[int(key)] for key in sorted_keys], dtype=np.uint16
+    )
+    positions = np.searchsorted(sorted_keys, stack)
+    return sorted_values[positions]
+
+
 def stack_identity(volume: MaterialLabelVolume) -> str:
     """Asset identity per D6: SHA-256 over the concatenated per-slice digests
     (provenance ``sources``, in stack order) plus the configuration digest."""
@@ -163,7 +255,12 @@ def convert_image_stack(
             f"config.format: unsupported format {config.format!r}; "
             f"expected one of {', '.join(_FORMATS)}"
         )
-    gray_to_id, palette = _parse_levels(tuple(config.levels))
+    mode, key_to_id, palette = _parse_levels(tuple(config.levels))
+    if mode == "rgb" and config.format != "png":
+        raise ImageStackError(
+            "config.levels: 'rgb' entries require config.format 'png' "
+            f"(PGM is a grayscale-only format), got {config.format!r}"
+        )
 
     slice_paths = sorted(slices_dir.glob(f"*.{config.format}"))
     if not slice_paths:
@@ -173,32 +270,38 @@ def convert_image_stack(
     _check_sequence_gaps(slice_paths)
 
     digests: list[str] = []
-    layers: list[npt.NDArray[np.uint8]] = []
+    layers: list[npt.NDArray[np.int64]] = []
     for path in slice_paths:
         digests.append(hashlib.sha256(path.read_bytes()).hexdigest())
-        layer = _read_slice(path, config.format)
+        layer = (
+            _read_color_slice(path)
+            if mode == "rgb"
+            else _read_slice(path, config.format)
+        )
         if layers and layer.shape != layers[0].shape:
             raise ImageStackError(
                 f"{path.name}: slice shape {layer.shape} differs from "
                 f"{slice_paths[0].name} {layers[0].shape}"
             )
-        layers.append(layer)
-    stack = np.stack(layers, axis=0)  # [z, y, x] grayscale
+        layers.append(np.asarray(layer, dtype=np.int64))
+    stack = np.stack(layers, axis=0)  # [z, y, x]
 
-    declared = np.asarray(sorted(gray_to_id), dtype=np.int64)
+    declared = np.asarray(sorted(key_to_id), dtype=np.int64)
     present = np.unique(stack)
-    undeclared = sorted(int(v) for v in present if int(v) not in gray_to_id)
+    undeclared = sorted(int(v) for v in present if int(v) not in key_to_id)
     if undeclared:
-        location = _first_undeclared_pixel(layers, slice_paths, declared)
+        describe = _describe_rgb if mode == "rgb" else _describe_gray
+        location = _first_undeclared_pixel(layers, slice_paths, declared, describe)
+        value_kind = "RGB values" if mode == "rgb" else "gray values"
+        described = (
+            [describe(v) for v in undeclared] if mode == "rgb" else undeclared
+        )
         raise ImageStackError(
-            f"slices: gray values {undeclared} are not declared in "
+            f"slices: {value_kind} {described} are not declared in "
             f"config.levels; {location}"
         )
 
-    lookup = np.zeros(256, dtype=np.uint16)
-    for gray, material_id in gray_to_id.items():
-        lookup[gray] = material_id
-    label = lookup[stack]
+    label = _apply_lookup(stack, key_to_id)
 
     provenance = build_provenance(
         generator=GENERATOR,
@@ -207,7 +310,11 @@ def convert_image_stack(
         sources=tuple(f"sha256:{digest}" for digest in digests),
         # No directory name here: the manifest digest must depend only on the
         # slice bytes and the configuration (checksum-stability contract).
-        notes="layered image stack; rows=+Y, columns=+X",
+        notes=(
+            "layered color-label image stack; rows=+Y, columns=+X"
+            if mode == "rgb"
+            else "layered image stack; rows=+Y, columns=+X"
+        ),
     )
     return build_material_label_volume(
         material_id=label,
