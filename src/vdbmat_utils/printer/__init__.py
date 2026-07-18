@@ -18,9 +18,12 @@ class PrintSlicesError(VdbmatUtilsError):
         super().__init__(f"{field_path}: {message}")
 
 
+from .exporter import ExportResult, export_print_slices  # noqa: E402
 from .types import PrintSlicesConfig  # noqa: E402
 
 __all__ = [
+    "ExportResult",
     "PrintSlicesConfig",
     "PrintSlicesError",
+    "export_print_slices",
 ]
