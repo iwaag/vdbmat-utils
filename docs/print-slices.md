@@ -20,9 +20,19 @@ This phase claims:
 - printer-constraint violations (color count, slice count, palette mismatch) are
   detected and rejected before anything is published,
 - atomic publish: a failed or interrupted export never leaves a partial
-  `<out>/<name>/`, and
-- a decode round-trip back to the sampler's own material-id arrays (the "far end" of a
-  future round-trip with `convert-image-stack`).
+  `<out>/<name>/`,
+- a full round-trip contract against `convert-image-stack`: exporting a volume and
+  reading the PNG stack back (with `levels` derived mechanically from the sidecar
+  manifest, no hand-written mapping) reproduces the **exact same printer-grid
+  material-id array** the exporter wrote — fixed by
+  `tests/contract/test_print_slices_roundtrip.py` across the default axis mapping, every
+  axis-swap/flip variant, an anisotropic-resampling case, and the exact-pitch identity
+  case, plus double-run stack-identity stability — see "Round-trip verification" below,
+  and
+- `convert-image-stack` accepts this exporter's color-label PNG stack directly (the
+  `rgb` levels extension, `docs/image-stacks.md`) as a first-class, independently-useful
+  input path (e.g. for an externally color-painted label stack), not only as a
+  round-trip test fixture.
 
 It does **not** yet claim:
 
@@ -30,8 +40,7 @@ It does **not** yet claim:
   produces a GCVF — that confirmation is Phase 3's job
   (`.devdocs/vision/printer_export/roadmap.md`), and any interpretation this doc states
   as a *default* (axis mapping, background handling, naming) is this implementation's
-  choice, not yet an externally verified fact;
-- a round-trip contract test against `convert-image-stack` — Phase 2; and
+  choice, not yet an externally verified fact; and
 - halftoning/dithering for continuous material blends, named printer presets, or an
   automatic High Speed profile switch (pass `max_materials=3` by hand instead).
 
@@ -165,6 +174,53 @@ tall in the PNG (pixel aspect, not a distortion of the source data — the manif
 `grid.physical_mm` records the true physical size). See
 `.devdocs/vision/printer_export/p1/report6.md` for the recorded walkthrough and its
 measured figures.
+
+## Round-trip verification (`convert-image-stack`)
+
+The exported PNG stack can be read back into a `MaterialLabelVolume` on the printer grid
+via `convert-image-stack`'s `rgb` levels (`docs/image-stacks.md`). The `levels`
+config needed to do this is derived mechanically from the sidecar manifest — no
+hand-written gray/RGB↔material table — by
+`vdbmat_utils.printer.roundtrip.image_stack_config_from_print_manifest()`:
+
+- **`levels`**: one `rgb`/`material_id`/`name`/`role` entry per manifest `palette`
+  entry, **including the background** (`material_id` 0). This is exactly the
+  manifest's `palette` table reshaped into the `image-stacks.md` rgb-levels schema — a
+  human reproducing it by hand would copy `palette[id].rgb`, the numeric `id` itself,
+  `palette[id].name`, and `palette[id].role` into one `levels` entry per palette key.
+- **`voxel_size_xyz_m`**: **recomputed** from the manifest's `printer.dpi_x`/
+  `printer.dpi_y`/`printer.layer_thickness_m` via the same `0.0254 / dpi` formula the
+  exporter's sampler uses — **not** read back from the manifest's `printer.pitch_*_mm`
+  millimetre fields, since round-tripping through a mm conversion risks a float mismatch
+  against the sampler's own pitch that this recomputation avoids by construction.
+- **`format`**: always `"png"` (this exporter never writes PGM).
+- The manifest's `format`/`format_version` are checked to be exactly
+  `"vdbmat.print-slices"`/`"1.0.0"`; anything else is a explicit error rather than a
+  best-effort read.
+
+```bash
+uv run vdbmat-utils export-print-slices input/demo.voxels.json \
+  --config printslices.json --out out/ --name demo
+# derive the read-back config from out/demo/demo.printslices.json (one-off script or
+# vdbmat_utils.printer.roundtrip.image_stack_config_from_print_manifest in a shell),
+# write it to roundtrip.json, then:
+uv run vdbmat-utils convert-image-stack out/demo --config roundtrip.json \
+  --out roundtrip/ --name demo
+uv run vdbmat-utils preview-slices roundtrip/demo.voxels.json --axis z
+uv run vdbmat-utils material-counts roundtrip/demo.voxels.json
+```
+
+The derived `levels` config currently has no CLI subcommand of its own (a library
+function only, `printer/roundtrip.py`; CLI wiring is Phase 4 candidate if it turns out
+to be needed beyond the contract test and this manual flow). `out/demo` itself is a
+valid `convert-image-stack` input directory as-is — the sidecar
+`demo.printslices.json` does not match the `*.png` glob, so it does not interfere.
+
+`preview-slices --axis z` on the round-tripped `.voxels.json` reproduces the same
+cross-section counts and X:Y pixel-aspect anisotropy described in the worked example
+below, now confirmed against the *read-back* array rather than only the freshly-sampled
+one — see `.devdocs/vision/printer_export/p2/report6.md` for a recorded run and
+`material-counts` cross-check against the export summary's per-material pixel counts.
 
 ## Downstream hand-off
 

@@ -62,7 +62,10 @@ uv run vdbmat-utils convert-image-stack slices/ --config stack.json --out out/ -
 ```
 
 Every gray value must be declared in the config's `levels`; gaps in numbered sequences and
-shape mismatches are errors.
+shape mismatches are errors. `levels` entries may declare `rgb` instead of `gray` (not
+both, and not mixed within one config) to read a color-label PNG stack — including
+`export-print-slices`' own output, read back via a config derived from its sidecar
+manifest (`docs/print-slices.md`'s round-trip section).
 
 ### Morph workflow (`docs/morphing.md`)
 
@@ -128,8 +131,10 @@ Converts a material-label voxel asset into an indexed-palette PNG slice stack
 (`<out>/<name>/slice_0000.png` …) plus a sidecar manifest, on a printer-pitch
 grid derived by nearest-neighbour sampling in physical space — never
 interpolated or averaged. Consumed by GrabCAD Print's voxel-printing PNG
-method; a round-trip contract with `convert-image-stack` and real-software
-GCVF acceptance are out of scope for this phase (see
+method; a full round-trip contract against `convert-image-stack` is fixed
+(the sidecar manifest mechanically derives the read-back `levels` config —
+`docs/print-slices.md`'s round-trip section). Real-software GCVF acceptance
+is out of scope for this phase (see
 `.devdocs/vision/printer_export/roadmap.md`).
 
 ### designlab: a browser GUI for building inputs (`docs/designlab.md`)
